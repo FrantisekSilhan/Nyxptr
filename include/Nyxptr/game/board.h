@@ -64,18 +64,21 @@ namespace nyx::game {
       static void initZobrist();
 
       uint64_t getAttacksTo(Square sq, Color side) const;
-
+      
       bool isSquareAttacked(Square sq, Color attackerColor) const;
-
+      
       bool isCheck(Color side) const {
         return isSquareAttacked(kingSquare[to_i(side)], !side);
       }
-
+      
       std::vector<float> getFullStateTensor() const;
-
+      
       bool makeMove(Move m);
       void undoMove();
-
+      
+      bool isDraw() const;
+      
+      inline uint64_t getZobristKey() const { return zobristKey; }
       inline Color getSideToMove() const { return sideToMove; }
       inline uint64_t getOccupancy(Color c) const { return colorOccupancy[static_cast<int>(c)]; }
       inline uint64_t getCombinedOccupancy() const { return combinedOccupancy; }

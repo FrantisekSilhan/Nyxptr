@@ -16,14 +16,17 @@
   along with this program.  If not, see <https://www.gnu.org/licenses/>
 */
 
+#include <torch/script.h>
 #include <iostream>
 #include <iomanip>
 #include <vector>
 #include "Nyxptr/game/board.h"
 #include "Nyxptr/game/lookups.h"
 #include "Nyxptr/game/movegen.h"
+#include "Nyxptr/engine/searcher.h"
 
 using namespace nyx::game;
+using namespace nyx::engine;
 
 void printBoard(const Board& board) {
   std::cout << "\n  +---+---+---+---+---+---+---+---+\n";
@@ -59,25 +62,55 @@ void printBoard(const Board& board) {
 }
 
 int main() {
-  std::cout << "Initializing Engine..." << std::endl;
+  std::cout << "========================================" << std::endl;
+  std::cout << "      Nyxptr Chess Engine v0.0.1        " << std::endl;
+  std::cout << "========================================" << std::endl;
+
+  std::cout << "[1/3] Initializing lookup tables..." << std::endl;
   lookups::initSliderTables();
+
+  std::cout << "[2/3] Initializing Zobrist keys..." << std::endl;
   Board::initZobrist();
-  std::cout << "Initialization Complete.\n" << std::endl;
+
+  std::cout << "[3/3] Loading Neural Network..." << std::endl;
+  std::unique_ptr<Searcher> searcher;
+  try {
+    searcher = std::make_unique<Searcher>("model/random_v0.pt");
+    std::cout << "Neural Network loaded successfully!" << std::endl;
+  } catch (const std::exception& e) {
+    std::cerr << "CRITICAL ERROR: Could not load model: " << e.what() << std::endl;
+    return 1;
+  }
 
   Board board;
-
   bool running = true;
+  int simulations = 400;
+
+  std::cout << "\nInitialization Complete. Type 'go' to let the AI move, or enter a move (e.g., e2e4)." << std::endl;
+
   while (running) {
     printBoard(board);
 
-    std::vector<Move> moves = MoveGen::generateMoves(board);
-    
-    std::cout << "Available moves (" << moves.size() << "): ";
-    for (const auto& m : moves) {
-      std::cout << m.toAlgebraic() << " ";
+    if (board.isDraw()) {
+      std::cout << "DRAW by repetition or 50-move rule!" << std::endl;
+      running = false;
+      continue;
     }
-    std::cout << "\n\nEnter move (or 'q' to quit, 'u' to undo): ";
-    
+
+    std::vector<Move> legalMoves = MoveGen::generateMoves(board);
+    MoveGen::filterLegalMoves(board, legalMoves);
+
+    if (legalMoves.empty()) {
+      if (board.isCheck(board.getSideToMove())) {
+        std::cout << "CHECKMATE! " << (board.getSideToMove() == Color::White ? "Black" : "White") << " wins." << std::endl;
+      } else {
+        std::cout << "STALEMATE! Game is a draw." << std::endl;
+      }
+      running = false;
+      continue;
+    }
+
+    std::cout << "Enter move, 'go' for AI, 'u' for undo, or 'q' to quit: ";
     std::string input;
     std::cin >> input;
 
@@ -91,21 +124,30 @@ int main() {
       continue;
     }
 
+    if (input == "go") {
+      searcher->clearCache();
+      std::cout << "AI is thinking (" << simulations << " simulations)..." << std::endl;
+      Move bestMove = searcher->findBestMove(board, simulations);
+      if (!bestMove.isNone()) {
+        std::cout << "AI played: " << bestMove.toAlgebraic() << std::endl;
+        board.makeMove(bestMove);
+      } else {
+        std::cout << "AI found no moves!" << std::endl;
+      }
+      continue;
+    }
+
     bool found = false;
-    for (const auto& m : moves) {
+    for (const auto& m : legalMoves) {
       if (m.toAlgebraic() == input) {
-        if (board.makeMove(m)) {
-          std::cout << "Played: " << input << std::endl;
-          found = true;
-        } else {
-          std::cout << "Move resulted in an illegal position (King left in check)!" << std::endl;
-        }
+        board.makeMove(m);
+        found = true;
         break;
       }
     }
 
     if (!found) {
-      std::cout << "Invalid move! Please use algebraic notation (e.g., e2e4)." << std::endl;
+      std::cout << "Invalid or illegal move!" << std::endl;
     }
   }
 

@@ -87,6 +87,23 @@ namespace nyx::game {
     for (int s = 0; s < 64; ++s) enPassantKeys[s] = rng();
   }
 
+  bool Board::isDraw() const {
+    if (halfMoveClock >= 100) return true;
+
+    int repetitions = 0;
+    for (const auto& state : history) {
+      if (state.zobristKey == zobristKey) {
+        repetitions++;
+      }
+    }
+
+    if (repetitions >= 2) return true;
+
+    // TODO: Implement insufficient material checks
+
+    return false;
+  }
+
   uint64_t Board::getAttacksTo(Square sq, Color side) const {
     uint64_t occ = combinedOccupancy;
     uint64_t allAttackers = 0;

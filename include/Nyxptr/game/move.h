@@ -67,6 +67,8 @@ namespace nyx::game {
 
       std::string toAlgebraic() const;
 
+      constexpr uint16_t getRaw() const { return data; }
+
     private:
       MoveData data;
   };

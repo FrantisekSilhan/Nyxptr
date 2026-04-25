@@ -22,6 +22,9 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 )
 
 target_link_libraries(${PROJECT_NAME} ${TORCH_LIBRARIES})
+get_target_property(TORCH_INCLUDE_DIRST torch INTERFACE_INCLUDE_DIRECTORIES)
+target_include_directories(${PROJECT_NAME} SYSTEM PRIVATE ${TORCH_INCLUDE_DIRS})
+
 set_property(TARGET ${PROJECT_NAME} PROPERTY CXX_STANDARD 20)
 
 if (MSVC)
@@ -30,7 +33,7 @@ if (MSVC)
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
     ${TORCH_DLLS}
     $<TARGET_FILE_DIR:${PROJECT_NAME}>)
-  target_compile_options(${PROJECT_NAME} PRIVATE /W4 /WX)
+  target_compile_options(${PROJECT_NAME} PRIVATE /W4 /WX /wd4267 /wd4702)
 else()
   target_compile_options(${PROJECT_NAME} PRIVATE -Wall -Wextra -Wpedantic -Werror)
   if(NOT "${TORCH_CXX_FLAGS}" MATCHES "-D_GLIBCXX_USE_CXX11_ABI=1")
