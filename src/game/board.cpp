@@ -99,7 +99,36 @@ namespace nyx::game {
 
     if (repetitions >= 2) return true;
 
-    // TODO: Implement insufficient material checks
+    uint64_t pawns = getBitboard(Color::White, Piece::Pawn) | getBitboard(Color::Black, Piece::Pawn);
+    uint64_t majors = getBitboard(Color::White, Piece::Rook) | getBitboard(Color::Black, Piece::Rook) | getBitboard(Color::White, Piece::Queen) | getBitboard(Color::Black, Piece::Queen);
+
+    if (pawns != 0 || majors != 0) return false;
+
+    int wN = bitboard::countBits(getBitboard(Color::White, Piece::Knight));
+    int bN = bitboard::countBits(getBitboard(Color::Black, Piece::Knight));
+    int wB = bitboard::countBits(getBitboard(Color::White, Piece::Bishop));
+    int bB = bitboard::countBits(getBitboard(Color::Black, Piece::Bishop));
+
+    int totalMinors = wN + bN + wB + bB;
+
+    if (totalMinors == 0 || totalMinors == 1) return true;
+
+    if (totalMinors == 2 && wB == 1 && bB == 1) {
+      auto getBishopSquare = [this](Color c) {
+        uint64_t bb = getBitboard(c, Piece::Bishop);
+        return bitboard::getLSB(bb);
+      };
+
+      auto isDark = [](int sq) {
+        int row = sq / 8;
+        int col = sq % 8;
+        return (row + col) % 2 == 0;
+      };
+
+      if (isDark(getBishopSquare(Color::White)) == isDark(getBishopSquare(Color::Black))) {
+        return true;
+      }
+    }
 
     return false;
   }
@@ -122,9 +151,9 @@ namespace nyx::game {
     uint64_t kingMask = (1ULL << sqIdx);
 
     if (side == Color::White) {
-      allAttackers |= ((kingMask >> 9) & ~0x80808080808080ULL | (kingMask >> 7) & ~0x0101010101010101ULL) & bitboards[sIdx][to_i(Piece::Pawn)];
+      allAttackers |= ((kingMask >> 9) & ~0x8080808080808080ULL | (kingMask >> 7) & ~0x0101010101010101ULL) & bitboards[sIdx][to_i(Piece::Pawn)];
     } else {
-      allAttackers |= ((kingMask << 7) & ~0x80808080808080ULL | (kingMask << 9) & ~0x0101010101010101ULL) & bitboards[sIdx][to_i(Piece::Pawn)];
+      allAttackers |= ((kingMask << 7) & ~0x8080808080808080ULL | (kingMask << 9) & ~0x0101010101010101ULL) & bitboards[sIdx][to_i(Piece::Pawn)];
     }
 
     return allAttackers;
@@ -143,10 +172,10 @@ namespace nyx::game {
 
     const uint64_t sqMask = (1ULL << sqIdx);
     if (attackerColor == Color::White) {
-      if ((sqMask >> 9) & ~0x80808080808080ULL & bitboards[sIdx][to_i(Piece::Pawn)]) return true;
       if ((sqMask >> 7) & ~0x0101010101010101ULL & bitboards[sIdx][to_i(Piece::Pawn)]) return true;
+      if ((sqMask >> 9) & ~0x8080808080808080ULL & bitboards[sIdx][to_i(Piece::Pawn)]) return true;
     } else {
-      if ((sqMask << 7) & ~0x80808080808080ULL & bitboards[sIdx][to_i(Piece::Pawn)]) return true;
+      if ((sqMask << 7) & ~0x8080808080808080ULL & bitboards[sIdx][to_i(Piece::Pawn)]) return true;
       if ((sqMask << 9) & ~0x0101010101010101ULL & bitboards[sIdx][to_i(Piece::Pawn)]) return true;
     }
 
@@ -177,6 +206,8 @@ namespace nyx::game {
   }
 
   void Board::addPiece(Square sq, Piece p, Color c) {
+    if (sq == Square::None || p == Piece::None || c == Color::None) return;
+
     uint64_t mask = 1ULL << static_cast<int>(sq);
     int cIdx = static_cast<int>(c);
     int pIdx = static_cast<int>(p);
@@ -191,6 +222,8 @@ namespace nyx::game {
   }
 
   void Board::removePiece(Square sq, Piece p, Color c) {
+    if (sq == Square::None || p == Piece::None || c == Color::None) return;
+
     uint64_t mask = 1ULL << static_cast<int>(sq);
     int cIdx = static_cast<int>(c);
     int pIdx = static_cast<int>(p);
@@ -217,6 +250,54 @@ namespace nyx::game {
     const uint16_t flags = m.getFlags();
     const Piece movingPiece = getPieceAt(from);
     const Color us = sideToMove;
+
+    if (movingPiece == Piece::None || getColorAt(from) != us) {
+      return false;
+    }
+
+    if (to != from && getPieceAt(to) != Piece::None && getColorAt(to) == us) {
+      return false;
+    }
+
+    if (flags == Move::EnPassant) {
+      if (movingPiece != Piece::Pawn || enPassantSquare != to || getPieceAt(to) != Piece::None) {
+        return false;
+      }
+      Square epPawnSq = static_cast<Square>(to_i(to) + (us == Color::White ? -8 : 8));
+      if (getPieceAt(epPawnSq) != Piece::Pawn || getColorAt(epPawnSq) != !us) {
+        return false;
+      }
+    }
+
+    if (flags == Move::KingCastle || flags == Move::QueenCastle) {
+      if (movingPiece != Piece::King || isSquareAttacked(from, !us)) {
+        return false;
+      }
+
+      if (us == Color::White) {
+        if (from != Square::E1) return false;
+        if (flags == Move::KingCastle) {
+          if (getPieceAt(Square::H1) != Piece::Rook || getColorAt(Square::H1) != Color::White) return false;
+          if (isSquareAttacked(Square::F1, !us) || isSquareAttacked(Square::G1, !us)) return false;
+        } else {
+          if (getPieceAt(Square::A1) != Piece::Rook || getColorAt(Square::A1) != Color::White) return false;
+          if (isSquareAttacked(Square::D1, !us) || isSquareAttacked(Square::C1, !us)) return false;
+        }
+      } else {
+        if (from != Square::E8) return false;
+        if (flags == Move::KingCastle) {
+          if (getPieceAt(Square::H8) != Piece::Rook || getColorAt(Square::H8) != Color::Black) return false;
+          if (isSquareAttacked(Square::F8, !us) || isSquareAttacked(Square::G8, !us)) return false;
+        } else {
+          if (getPieceAt(Square::A8) != Piece::Rook || getColorAt(Square::A8) != Color::Black) return false;
+          if (isSquareAttacked(Square::D8, !us) || isSquareAttacked(Square::C8, !us)) return false;
+        }
+      }
+    }
+
+    zobristKey ^= sideKey;
+    if (enPassantSquare != Square::None) zobristKey ^= enPassantKeys[to_i(enPassantSquare)];
+    zobristKey ^= castlingKeys[castlingRights];
 
     state.capturedPiece = Piece::None;
     if (flags == Move::EnPassant) {
@@ -252,12 +333,10 @@ namespace nyx::game {
 
     if (movingPiece == Piece::King) kingSquare[to_i(us)] = to;
 
-    if (enPassantSquare != Square::None) zobristKey ^= enPassantKeys[to_i(enPassantSquare)];
-    zobristKey ^= castlingKeys[castlingRights];
-
     if (movingPiece == Piece::King) {
       castlingRights &= (us == Color::White) ? ~0x3 : ~0xC;
     }
+
     if (from == Square::A1 || to == Square::A1) castlingRights &= ~WhiteQueenside;
     if (from == Square::H1 || to == Square::H1) castlingRights &= ~WhiteKingside;
     if (from == Square::A8 || to == Square::A8) castlingRights &= ~BlackQueenside;
@@ -269,18 +348,16 @@ namespace nyx::game {
       enPassantSquare = Square::None;
     }
 
-    if (enPassantSquare != Square::None) zobristKey ^= enPassantKeys[to_i(enPassantSquare)];
-    zobristKey ^= castlingKeys[castlingRights];
-
     if (movingPiece == Piece::Pawn || state.capturedPiece != Piece::None) {
       halfMoveClock = 0;
     } else {
       halfMoveClock++;
     }
 
-    if (sideToMove == Color::Black) fullMoveNumber++;
-    sideToMove = !sideToMove;
-    zobristKey ^= sideKey;
+    sideToMove = !us;
+
+    if (enPassantSquare != Square::None) zobristKey ^= enPassantKeys[to_i(enPassantSquare)];
+    zobristKey ^= castlingKeys[castlingRights];
 
     if (isSquareAttacked(kingSquare[to_i(us)], !us)) {
       history.push_back(state);
@@ -341,10 +418,7 @@ namespace nyx::game {
     halfMoveClock = state.halfMoveClock;
     zobristKey = state.zobristKey;
 
-    if (movedPiece == Piece::King || (flags & Move::Promotion && Piece::Pawn == Piece::King)) {
-      kingSquare[to_i(us)] = from;
-    }
-    if (boardArray[to_i(from)] == Piece::King) {
+    if (movedPiece == Piece::King || getPieceAt(from) == Piece::King) {
       kingSquare[to_i(us)] = from;
     }
   }

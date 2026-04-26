@@ -20,13 +20,22 @@
 #include <iostream>
 #include <iomanip>
 #include <vector>
+#include <csignal>
 #include "Nyxptr/game/board.h"
 #include "Nyxptr/game/lookups.h"
 #include "Nyxptr/game/movegen.h"
 #include "Nyxptr/engine/searcher.h"
+#include "Nyxptr/engine/recorder.h"
 
 using namespace nyx::game;
 using namespace nyx::engine;
+
+std::atomic<bool> running(true);
+
+void signalHandler([[maybe_unused]] int signum) {
+  std::cout << "\n[Interrupt] Gracefully shutting down..." << std::endl;
+  running = false;
+}
 
 void printBoard(const Board& board) {
   std::cout << "\n  +---+---+---+---+---+---+---+---+\n";
@@ -61,7 +70,67 @@ void printBoard(const Board& board) {
   std::cout << "Side to move: " << (board.getSideToMove() == Color::White ? "White" : "Black") << "\n";
 }
 
-int main() {
+void runSelfPlay(Searcher& searcher, int numGames, int simsPerMove) {
+  const std::string filename = "training_data.bin";
+  DataRecorder recorder(filename);
+  
+  for (int g = 0; g < numGames; ++g) {
+    Board board;
+    int movesInGame = 0;
+
+    std::cout << "Starting Game " << (g + 1) << "/" << numGames << std::endl;
+
+    while (running) {
+      auto legalMoves = MoveGen::generateMoves(board);
+      MoveGen::filterLegalMoves(board, legalMoves);
+
+      if (legalMoves.empty() || board.isDraw()) {
+        float result = 0.0f;
+        if (legalMoves.empty() && board.isCheck(board.getSideToMove())) {
+          result = -1.0f;
+        }
+
+        recorder.finishGame(result);
+        std::cout << "\rGame " << (g + 1) << " Finished. Moves: " << movesInGame
+                  << " Result: " << result << "                      " << std::endl;
+        break;
+      }
+
+      std::cout << "\r> Move " << std::setw(3) << movesInGame + 1 
+                << " | Side: " << (board.getSideToMove() == Color::White ? "W" : "B")
+                << " | Last Move: " << std::setw(5) << (movesInGame > 0 ? "..." : "None")
+                << std::flush;
+
+      searcher.clearCache();
+      auto [bestMove, distribution] = searcher.getBestMoveAndDistribution(board, simsPerMove);
+
+      recorder.recordStep(board, distribution);
+
+      if (bestMove.isNone()) {
+        std::cerr << "\nError: MCTS failed to find a move!" << std::endl;
+        float res = 0.0f;
+        if (board.isCheck(board.getSideToMove())) res = -1.0f;
+        recorder.finishGame(res);
+        std::cout << "\rGame " << (g + 1) << " Finished via search.                      " << std::endl;
+        break;
+      }
+
+      if (board.makeMove(bestMove)) {
+        movesInGame++;
+      } else {
+        std::cerr << "Error: AI tried to play illegal move: " << bestMove.toAlgebraic() << std::endl;
+        recorder.finishGame(0.0f); // Treat as draw
+        break; 
+      }
+    }
+  }
+
+  std::cout << "\nSelf-play session complete. Data saved to " << filename << std::endl;
+}
+
+int main(int argc, char* argv[]) {
+  std::signal(SIGINT, signalHandler);
+
   std::cout << "========================================" << std::endl;
   std::cout << "      Nyxptr Chess Engine v0.0.1        " << std::endl;
   std::cout << "========================================" << std::endl;
@@ -82,8 +151,15 @@ int main() {
     return 1;
   }
 
+  if (argc > 1 && std::string(argv[1]) == "--selfplay") {
+    int games = (argc > 2) ? std::stoi(argv[2]) : 10;
+    int sims = (argc > 3) ? std::stoi(argv[3]) : 400;
+    std::cout << "Entering Self-Play mode: " << games << " games @ " << sims << " sims." << std::endl;
+    runSelfPlay(*searcher, games, sims);
+    return 0;
+  }
+
   Board board;
-  bool running = true;
   int simulations = 400;
 
   std::cout << "\nInitialization Complete. Type 'go' to let the AI move, or enter a move (e.g., e2e4)." << std::endl;
@@ -113,6 +189,8 @@ int main() {
     std::cout << "Enter move, 'go' for AI, 'u' for undo, or 'q' to quit: ";
     std::string input;
     std::cin >> input;
+
+    if (!running) break;
 
     if (input == "q") {
       running = false;

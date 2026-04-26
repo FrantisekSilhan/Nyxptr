@@ -67,11 +67,19 @@ namespace nyx::engine {
 
       MCTSNode* curr = root.get();
       path.push_back(curr);
+      bool playoutValid = true;
 
       while (!curr->children.empty()) {
         curr = select(curr);
-        tempBoard.makeMove(curr->move);
+        if (!tempBoard.makeMove(curr->move)) {
+          playoutValid = false;
+          break;
+        }
         path.push_back(curr);
+      }
+
+      if (!playoutValid) {
+        continue;
       }
 
       expandAndEvaluate(curr, tempBoard, path);
@@ -85,6 +93,60 @@ namespace nyx::engine {
       });
 
     return bestIter->second->move;
+  }
+
+  std::pair<game::Move, std::vector<float>> Searcher::getBestMoveAndDistribution(game::Board& board, int simulations) {
+    auto root = std::make_unique<MCTSNode>(game::Move(), nullptr, 1.0f);
+
+    std::vector<MCTSNode*> rootPath = {root.get()};
+    expandAndEvaluate(root.get(), board, rootPath);
+
+    for (int i = 0; i < simulations; ++i) {
+      game::Board tempBoard = board;
+      std::vector<MCTSNode*> path;
+
+      MCTSNode* curr = root.get();
+      path.push_back(curr);
+      bool playoutValid = true;
+
+      while (!curr->children.empty()) {
+        curr = select(curr);
+        if (!tempBoard.makeMove(curr->move)) {
+          playoutValid = false;
+          break;
+        }
+        path.push_back(curr);
+      }
+
+      if (!playoutValid) {
+        continue;
+      }
+
+      expandAndEvaluate(curr, tempBoard, path);
+    }
+
+    std::vector<float> distribution(4352, 0.0f);
+    float totalVisits = 0;
+
+    for (const auto& [key, child] : root->children) {
+      totalVisits += child->visitCount;
+    }
+
+    game::Move bestMove;
+    int maxVisits = -1;
+
+    for (const auto& [key, child] : root->children) {
+      int idx = moveToIndex(child->move);
+      float prob = (totalVisits > 0) ? (child->visitCount / totalVisits) : 0.0f;
+      distribution[idx] = prob;
+
+      if (child->visitCount > maxVisits) {
+        maxVisits = child->visitCount;
+        bestMove = child->move;
+      }
+    }
+
+    return {bestMove, distribution};
   }
 
   MCTSNode* Searcher::select(MCTSNode* node) {
