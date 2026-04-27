@@ -26,6 +26,7 @@
 #include "Nyxptr/game/movegen.h"
 #include "Nyxptr/engine/searcher.h"
 #include "Nyxptr/engine/recorder.h"
+#include "Nyxptr/engine/converter.h"
 
 using namespace nyx::game;
 using namespace nyx::engine;
@@ -129,6 +130,7 @@ void runSelfPlay(Searcher& searcher, int numGames, int simsPerMove) {
 }
 
 int main(int argc, char* argv[]) {
+  std::string MODEL_PATH = "model/nyxptr_v1.pt";
   std::signal(SIGINT, signalHandler);
 
   std::cout << "========================================" << std::endl;
@@ -141,10 +143,22 @@ int main(int argc, char* argv[]) {
   std::cout << "[2/3] Initializing Zobrist keys..." << std::endl;
   Board::initZobrist();
 
+  if (argc > 1 && std::string(argv[1]) == "--convert") {
+    if (argc < 4) {
+      std::cout << "Usage: --convert <input.pgn> <output.bin>" << std::endl;
+      return 1;
+    }
+    std::string pgnPath = argv[2];
+    std::string binPath = argv[3];
+    std::cout << "Converting PGN: " << pgnPath << " to Binary: " << binPath << std::endl;
+    DataConverter::convertPGNToBinary(pgnPath, binPath);
+    return 0;
+  }
+
   std::cout << "[3/3] Loading Neural Network..." << std::endl;
   std::unique_ptr<Searcher> searcher;
   try {
-    searcher = std::make_unique<Searcher>("model/random_v0.pt");
+    searcher = std::make_unique<Searcher>(MODEL_PATH);
     std::cout << "Neural Network loaded successfully!" << std::endl;
   } catch (const std::exception& e) {
     std::cerr << "CRITICAL ERROR: Could not load model: " << e.what() << std::endl;

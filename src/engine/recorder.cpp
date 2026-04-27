@@ -46,6 +46,7 @@ namespace nyx::engine {
     }
 
     gameBuffer.clear();
+    fileStream.flush();
   }
 
   void DataRecorder::writeToDisk(const TrainingStep& step, float result) {

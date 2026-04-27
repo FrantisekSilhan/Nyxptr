@@ -37,12 +37,11 @@ namespace nyx::engine {
       game::Move findBestMove(game::Board& board, int simulations);
       std::pair<game::Move, std::vector<float>> getBestMoveAndDistribution(game::Board& board, int simulations);
       void clearCache() { tt.clear(); }
+      static int moveToIndex(const game::Move& m);
     private:
       MCTSNode* select(MCTSNode* node);
       void expandAndEvaluate(MCTSNode* node, game::Board& board, std::vector<MCTSNode*> path);
       void backpropagate(const std::vector<MCTSNode*>& path, float value);
-
-      int moveToIndex(const game::Move& m);
 
       torch::jit::script::Module model;
       torch::Device device;
