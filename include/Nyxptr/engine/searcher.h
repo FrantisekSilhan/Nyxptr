@@ -35,9 +35,13 @@ namespace nyx::engine {
     public:
       explicit Searcher(const std::string& modelPath);
       game::Move findBestMove(game::Board& board, int simulations);
+      game::Move selectMoveProportionally(MCTSNode* root);
       std::pair<game::Move, std::vector<float>> getBestMoveAndDistribution(game::Board& board, int simulations);
       void clearCache() { tt.clear(); }
       static int moveToIndex(const game::Move& m);
+      void setCPuct(float c) { cPuct = c; }
+      void setFpuReduction(float r) { fpuReduction = r; }
+      void setDrawPenalty(float p) { drawPenalty = p; }
     private:
       MCTSNode* select(MCTSNode* node);
       void expandAndEvaluate(MCTSNode* node, game::Board& board, std::vector<MCTSNode*> path);
@@ -45,7 +49,10 @@ namespace nyx::engine {
 
       torch::jit::script::Module model;
       torch::Device device;
-
-      const float c_puct = 2.0f;
+      std::unordered_map<uint64_t, Evaluation> tt;
+      float cPuct = 1.8f;
+      float fpuReduction = 0.15f;
+      float drawPenalty = 0.0f;
+      float policyTemp = 1.2f;
   };
 }

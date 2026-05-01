@@ -87,5 +87,6 @@ namespace nyx::game {
       inline Color getColorAt(Square sq) const { return colorArray[static_cast<int>(sq)]; }
       inline uint8_t getCastlingRights() const { return castlingRights; }
       inline Square getEnPassantSquare() const { return enPassantSquare; }
+      inline int getFullMoveNumber() const { return fullMoveNumber; }
   };
 }

@@ -35,7 +35,6 @@ namespace nyx::engine {
       ~DataRecorder();
 
       void recordStep(const game::Board& board, const std::vector<float>& visitCounts);
-
       void finishGame(float finalResult);
 
     private:
@@ -44,5 +43,26 @@ namespace nyx::engine {
       std::ofstream fileStream;
 
       void writeToDisk(const TrainingStep& step, float result);
+  };
+
+  class PRecorder {
+    public:
+      PRecorder(const std::string& filename);
+      ~PRecorder();
+
+      void recordStep(const game::Board& board, game::Move bestMove);
+      void finishGame(float finalResult);
+
+    private:
+      struct PStep {
+        uint64_t planes[13];
+        uint16_t moveIndex;
+      };
+
+      std::string outputPath;
+      std::ofstream fileStream;
+      std::vector<PStep> gameBuffer;
+
+      void writeToDisk(const PStep& step, float result);
   };
 }

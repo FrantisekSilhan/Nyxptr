@@ -32,7 +32,7 @@ namespace nyx::engine {
       return;
     }
    
-    DataRecorder recorder(binPath);
+    PRecorder recorder(binPath);
     std::string line;
 
     int gamesConverted = 0;
@@ -76,7 +76,7 @@ namespace nyx::engine {
       gameInvalid = false;
       taggedResult.clear();
 
-      if (gamesConverted % 100 == 0) {
+      if (gamesConverted % 1000 == 0) {
         std::cout << "Converted " << gamesConverted << " games..." << std::endl;
       }
     };
@@ -138,14 +138,10 @@ namespace nyx::engine {
           gameInvalid = true;
           break;
         }
-
-        sawMove = true;
-
-        std::vector<float> dist(4352, 0.0f);
-        dist[Searcher::moveToIndex(move)] = 1.0f;
-
-        recorder.recordStep(board, dist);
+        
+        recorder.recordStep(board, move);
         board.makeMove(move);
+        sawMove = true;
       }
     }
 

@@ -22,6 +22,7 @@
 #include <cmath>
 #include <algorithm>
 #include <torch/cuda.h>
+#include <random>
 
 using namespace nyx::game;
 
@@ -57,9 +58,32 @@ namespace nyx::engine {
 
   game::Move Searcher::findBestMove(game::Board& board, int simulations) {
     auto root = std::make_unique<MCTSNode>(game::Move(), nullptr, 1.0f);
-
     std::vector<MCTSNode*> rootPath = {root.get()};
     expandAndEvaluate(root.get(), board, rootPath);
+
+    if (!root->children.empty()) {
+      float epsilon = 0.15f;
+      float alpha = 0.3f;
+
+      static std::mt19937 gen(std::random_device{}());
+      std::gamma_distribution<float> dist(alpha, 1.0f);
+
+      std::vector<float> noise(root->children.size());
+      float noiseSum = 0.0f;
+      for (float& n : noise) {
+        n = dist(gen);
+        noiseSum += n;
+      }
+
+      int i = 0;
+      for (auto& [key, child] : root->children) {
+        float noiseVal = noise[i++] / noiseSum;
+        child->prior = (1.0f - epsilon) * child->prior + epsilon * noiseVal;
+      }
+    }
+
+    int maxDepth = 0;
+    auto startTime = std::chrono::high_resolution_clock::now();
 
     for (int i = 0; i < simulations; ++i) {
       game::Board tempBoard = board;
@@ -82,7 +106,26 @@ namespace nyx::engine {
         continue;
       }
 
+      if (static_cast<int>(path.size()) > maxDepth) maxDepth = path.size();
       expandAndEvaluate(curr, tempBoard, path);
+
+      if (i > 0 && i % 100 == 0) {
+        auto now = std::chrono::high_resolution_clock::now();
+        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - startTime).count();
+        float nps = (ms > 0) ? (i * 1000.0f / ms) : 0.0f;
+
+        auto bestSoFar = std::max_element(root->children.begin(), root->children.end(),
+          [](const auto& a, const auto& b) {
+            return a.second->visitCount < b.second->visitCount;
+          });
+
+        int cpScore = static_cast<int>(root->getQ() * 1000.0f);
+        std::cout << "info depth " << maxDepth
+                  << " nodes " << i
+                  << " nps " << static_cast<int>(nps)
+                  << " score cp " << cpScore
+                  << " pv " << bestSoFar->second->move.toAlgebraic() << std::endl;
+      }
     }
 
     if (root->children.empty()) return game::Move();
@@ -95,11 +138,50 @@ namespace nyx::engine {
     return bestIter->second->move;
   }
 
+  game::Move Searcher::selectMoveProportionally(MCTSNode* root) {
+    static std::mt19937 gen(std::random_device{}());
+
+    std::vector<float> visits;
+    std::vector<game::Move> moves;
+    float totalVisits = 0.0f;
+
+    for (const auto& [key, child] : root->children) {
+      visits.push_back(static_cast<float>(child->visitCount));
+      moves.push_back(child->move);
+      totalVisits += child->visitCount;
+    }
+
+    if (totalVisits == 0.0f) return game::Move();
+
+    std::discrete_distribution<> dist(visits.begin(), visits.end());
+    return moves[dist(gen)];
+  }
+
   std::pair<game::Move, std::vector<float>> Searcher::getBestMoveAndDistribution(game::Board& board, int simulations) {
     auto root = std::make_unique<MCTSNode>(game::Move(), nullptr, 1.0f);
-
     std::vector<MCTSNode*> rootPath = {root.get()};
     expandAndEvaluate(root.get(), board, rootPath);
+
+    if (!root->children.empty()) {
+      float epsilon = 0.25f;
+      float alpha = 0.3f;
+
+      static std::mt19937 gen(std::random_device{}());
+      std::gamma_distribution<float> dist(alpha, 1.0f);
+
+      std::vector<float> noise(root->children.size());
+      float noiseSum = 0.0f;
+      for (float& n : noise) {
+        n = dist(gen);
+        noiseSum += n;
+      }
+
+      int i = 0;
+      for (auto& [key, child] : root->children) {
+        float noiseVal = noise[i++] / noiseSum;
+        child->prior = (1.0f - epsilon) * child->prior + epsilon * noiseVal;
+      }
+    }
 
     for (int i = 0; i < simulations; ++i) {
       game::Board tempBoard = board;
@@ -132,21 +214,15 @@ namespace nyx::engine {
       totalVisits += child->visitCount;
     }
 
-    game::Move bestMove;
-    int maxVisits = -1;
-
     for (const auto& [key, child] : root->children) {
       int idx = moveToIndex(child->move);
       float prob = (totalVisits > 0) ? (child->visitCount / totalVisits) : 0.0f;
       distribution[idx] = prob;
-
-      if (child->visitCount > maxVisits) {
-        maxVisits = child->visitCount;
-        bestMove = child->move;
-      }
     }
 
-    return {bestMove, distribution};
+    game::Move selectedMove = selectMoveProportionally(root.get());
+
+    return {selectedMove, distribution};
   }
 
   MCTSNode* Searcher::select(MCTSNode* node) {
@@ -157,9 +233,11 @@ namespace nyx::engine {
     for (const auto& [key, child] : node->children)
       totalVisits += child->visitCount;
 
+    float fpuValue = node->getQ() - fpuReduction;
+
     for (const auto& [key, child] : node->children) {
-      float Q = child->getQ();
-      float U = c_puct * child->prior * std::sqrt(totalVisits) / (1 + child->visitCount);
+      float Q = (child->visitCount > 0) ? child->getQ() : fpuValue;
+      float U = cPuct * child->prior * std::sqrt(totalVisits) / (1 + child->visitCount);
 
       float score = Q + U;
       if (score > bestScore) {
@@ -190,12 +268,16 @@ namespace nyx::engine {
         result = -1.0f;
       }
 
+      if (result == 0.0f) {
+        result = drawPenalty;
+      }
+
       backpropagate(path, result);
       return;
     }
 
     if (board.isDraw()) {
-      backpropagate(path, 0.0f);
+      backpropagate(path, drawPenalty);
       return;
     }
 
@@ -230,9 +312,11 @@ namespace nyx::engine {
     float probSum = 0.0f;
     for (const auto& m : legalMoves) {
       int idx = moveToIndex(m);
-      float prob = policyData[idx];
-      node->children[m.getRaw()] = std::make_unique<MCTSNode>(m, node, prob);
-      probSum += prob;
+      float logProb = policyData[idx];
+      float rawProb = std::exp(logProb);
+      float flattenedProb = std::pow(rawProb, 1.0f / policyTemp);
+      node->children[m.getRaw()] = std::make_unique<MCTSNode>(m, node, flattenedProb);
+      probSum += flattenedProb;
     }
 
     if (probSum > 0) {

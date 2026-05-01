@@ -3,3 +3,4 @@ out/
 .vscode/
 libtorch/
 model/
+data/

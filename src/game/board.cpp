@@ -355,6 +355,7 @@ namespace nyx::game {
     }
 
     sideToMove = !us;
+    if (us == Color::Black) fullMoveNumber++;
 
     if (enPassantSquare != Square::None) zobristKey ^= enPassantKeys[to_i(enPassantSquare)];
     zobristKey ^= castlingKeys[castlingRights];
