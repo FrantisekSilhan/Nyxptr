@@ -11,6 +11,18 @@
       }
     },
     {
+      "name": "linux-rocm",
+      "displayName": "Linux ROCm",
+      "description": "Linux ROCm",
+      "inherits": "base",
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_CXX_COMPILER": "g++",
+        "Torch_DIR": "/opt/libtorch/share/cmake/Torch"
+      }
+    },
+    {
       "name": "vs2022-x64",
       "displayName": "Visual Studio 2022 x64",
       "description": "Targeting Windows x64 with MSVC",
@@ -21,6 +33,10 @@
     }
   ],
   "buildPresets": [
+    {
+      "name": "linux-release",
+      "configurePreset": "linux-rocm"
+    },
     {
       "name": "vs2022-x64-debug",
       "displayName": "Debug",

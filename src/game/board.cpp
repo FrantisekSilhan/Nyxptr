@@ -151,9 +151,9 @@ namespace nyx::game {
     uint64_t kingMask = (1ULL << sqIdx);
 
     if (side == Color::White) {
-      allAttackers |= ((kingMask >> 9) & ~0x8080808080808080ULL | (kingMask >> 7) & ~0x0101010101010101ULL) & bitboards[sIdx][to_i(Piece::Pawn)];
+      allAttackers |= (((kingMask >> 9) & ~0x8080808080808080ULL) | ((kingMask >> 7) & ~0x0101010101010101ULL)) & bitboards[sIdx][to_i(Piece::Pawn)];
     } else {
-      allAttackers |= ((kingMask << 7) & ~0x8080808080808080ULL | (kingMask << 9) & ~0x0101010101010101ULL) & bitboards[sIdx][to_i(Piece::Pawn)];
+      allAttackers |= (((kingMask << 7) & ~0x8080808080808080ULL) | ((kingMask << 9) & ~0x0101010101010101ULL)) & bitboards[sIdx][to_i(Piece::Pawn)];
     }
 
     return allAttackers;
