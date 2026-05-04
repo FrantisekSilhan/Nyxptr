@@ -21,6 +21,7 @@
 #include <memory>
 #include <vector>
 #include <string>
+#include <unordered_map>
 #include "Nyxptr/game/board.h"
 #include "Nyxptr/game/move.h"
 #include "Nyxptr/engine/node.h"
@@ -30,7 +31,7 @@ namespace nyx::engine {
     std::vector<float> policy;
     float value;
   };
-  inline std::unordered_map<uint64_t, Evaluation> tt;
+
   class Searcher {
     public:
       explicit Searcher(const std::string& modelPath);
@@ -52,7 +53,7 @@ namespace nyx::engine {
       std::unordered_map<uint64_t, Evaluation> tt;
       float cPuct = 1.8f;
       float fpuReduction = 0.15f;
-      float drawPenalty = 0.0f;
+      float drawPenalty = -0.1f;
       float policyTemp = 1.2f;
   };
 }

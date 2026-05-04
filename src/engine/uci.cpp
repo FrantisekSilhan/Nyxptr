@@ -41,7 +41,7 @@ std::vector<std::string> split(const std::string& s) {
 };
 
 namespace nyx::engine {
-  void UCI::loop(Searcher searcher, int simulations) {
+  void UCI::loop(Searcher& searcher, int simulations) {
     Board board;
     std::string line;
 
@@ -73,18 +73,27 @@ namespace nyx::engine {
           }
           for (size_t i = mIdx; i < tokens.size(); ++i) {
             std::vector<Move> moves = MoveGen::generateMoves(board);
+            MoveGen::filterLegalMoves(board, moves);
+            bool moveApplied = false;
             for (const Move& m : moves) {
               if (m.toAlgebraic() == tokens[i]) {
-                board.makeMove(m);
+                if (board.makeMove(m)) {
+                  moveApplied = true;
+                }
                 break;
               }
+            }
+
+            if (!moveApplied) {
+              std::cout << "info string invalid position move: " << tokens[i] << std::endl;
+              break;
             }
           }
         }
       } else if (cmd == "go") {
         searcher.clearCache();
         Move bestMove = searcher.findBestMove(board, simulations);
-        std::cout << "bestmove " << bestMove.toAlgebraic() << std::endl;
+        std::cout << "bestmove " << (bestMove.isNone() ? "0000" : bestMove.toAlgebraic()) << std::endl;
       } else if (cmd == "quit") {
         break;
       }

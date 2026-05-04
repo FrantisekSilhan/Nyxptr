@@ -16,14 +16,21 @@
   along with this program.  If not, see <https://www.gnu.org/licenses/>
 */
 
-#pragma once
-#include "Nyxptr/engine/searcher.h"
+#ifndef FORCED_STDATOMIC_H
+#define FORCED_STDATOMIC_H
 
-using namespace nyx::engine;
+#include <stdbool.h>
 
-namespace nyx::engine {
-  class UCI {
-    public:
-      static void loop(Searcher& searcher, int simulations);
-  };
-}
+#define _Atomic
+typedef bool atomic_bool;
+typedef int  atomic_int;
+
+#define atomic_init(obj, val) (*obj = val)
+#define atomic_load_explicit(obj, mem) (*obj)
+#define atomic_store_explicit(obj, val, mem) (*obj = val)
+
+#define memory_order_relaxed 0
+#define memory_order_acquire 0
+#define memory_order_release 0
+
+#endif

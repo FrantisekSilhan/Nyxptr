@@ -133,6 +133,16 @@ namespace nyx::game {
     return false;
   }
 
+  bool Board::hasRepeatedPosition() const {
+    for (const auto& state : history) {
+      if (state.zobristKey == zobristKey) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
   uint64_t Board::getAttacksTo(Square sq, Color side) const {
     uint64_t occ = combinedOccupancy;
     uint64_t allAttackers = 0;

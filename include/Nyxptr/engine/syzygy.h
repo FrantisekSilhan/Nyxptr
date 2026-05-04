@@ -17,13 +17,18 @@
 */
 
 #pragma once
-#include "Nyxptr/engine/searcher.h"
-
-using namespace nyx::engine;
+#include "Nyxptr/game/board.h"
+#include "Nyxptr/game/move.h"
+#include <string>
 
 namespace nyx::engine {
-  class UCI {
+  class Syzygy {
     public:
-      static void loop(Searcher& searcher, int simulations);
+      static bool init(const std::string& path);
+      static bool canProbe(const game::Board& board);
+      static unsigned probeWdl(const game::Board& board);
+      static game::Move probeDtz(const game::Board& board);
+    private:
+      static game::Move convertTbMoveToNyxptrMove(const game::Board& board, uint16_t tbMove);
   };
 }

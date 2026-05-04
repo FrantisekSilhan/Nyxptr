@@ -22,6 +22,7 @@
 #include "Nyxptr/game/lookups.h"
 #include "Nyxptr/game/board.h"
 #include "Nyxptr/engine/converter.h"
+#include "Nyxptr/engine/syzygy.h"
 #include <string>
 #include <atomic>
 #include <filesystem>
@@ -33,6 +34,9 @@ std::atomic<bool> running(true);
 int main(int argc, char* argv[]) {
   nyx::game::lookups::initSliderTables();
   nyx::game::Board::initZobrist();
+  if (!Syzygy::init("tablebases")) {
+    std::cerr << "Warning: Could not initialize Syzygy tablebases." << std::endl;
+  }
 
   std::string MODEL_PATH = "model/nyxptr_v3_epoch3.pt";
   Searcher searcher(MODEL_PATH);

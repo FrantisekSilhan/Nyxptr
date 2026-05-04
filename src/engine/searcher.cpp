@@ -17,6 +17,7 @@
 */
 
 #include "Nyxptr/engine/searcher.h"
+#include "Nyxptr/engine/syzygy.h"
 #include "Nyxptr/game/movegen.h"
 #include "Nyxptr/game/types.h"
 #include <cmath>
@@ -27,6 +28,54 @@
 using namespace nyx::game;
 
 namespace nyx::engine {
+  namespace {
+    constexpr unsigned kTbResultFailed = 0xFFFFFFFFu;
+    constexpr unsigned kTbLoss = 0;
+    constexpr unsigned kTbBlessedLoss = 1;
+    constexpr unsigned kTbDraw = 2;
+    constexpr unsigned kTbCursedWin = 3;
+    constexpr unsigned kTbWin = 4;
+
+    float wdlToValue(unsigned wdl) {
+      switch (wdl) {
+        case kTbLoss: return -1.0f;
+        case kTbBlessedLoss: return -0.9f;
+        case kTbDraw: return 0.0f;
+        case kTbCursedWin: return 0.9f;
+        case kTbWin: return 1.0f;
+        default: return 0.0f;
+      }
+    }
+
+    void fillOneHotDistribution(std::vector<float>& distribution, const game::Move& move) {
+      if (move.isNone()) {
+        return;
+      }
+
+      const int from = game::to_i(move.getFrom());
+      const int to = game::to_i(move.getTo());
+      const uint16_t flags = move.getFlags();
+
+      int idx = 0;
+      if (!(flags & game::Move::Promotion)) {
+        idx = from * 64 + to;
+      } else {
+        const uint16_t pieceType = flags & 0x3;
+        switch (pieceType) {
+          case 0: idx = 4096 + to; break;
+          case 1: idx = 4096 + 64 + to; break;
+          case 2: idx = 4096 + 128 + to; break;
+          case 3: idx = 4096 + 192 + to; break;
+          default: idx = from * 64 + to; break;
+        }
+      }
+
+      if (idx >= 0 && static_cast<size_t>(idx) < distribution.size()) {
+        distribution[idx] = 1.0f;
+      }
+    }
+  }
+
   Searcher::Searcher(const std::string& modelPath) : device(torch::cuda::is_available() ? torch::kCUDA : torch::kCPU) {
     model = torch::jit::load(modelPath);
     model.to(device);
@@ -52,35 +101,23 @@ namespace nyx::engine {
       case 0: return 4096 + to;
       case 1: return 4096 + 64 + to;
       case 2: return 4096 + 128 + to;
-      case 3: default: return from * 64 + to;
+      case 3: return 4096 + 192 + to;
+      default: return from * 64 + to;
     }
   }
 
   game::Move Searcher::findBestMove(game::Board& board, int simulations) {
+    if (Syzygy::canProbe(board)) {
+      unsigned wdl = Syzygy::probeWdl(board);
+      if (wdl == kTbWin || wdl == kTbLoss) {
+        game::Move tbMove = Syzygy::probeDtz(board);
+        if (!tbMove.isNone()) return tbMove;
+      }
+    }
+
     auto root = std::make_unique<MCTSNode>(game::Move(), nullptr, 1.0f);
     std::vector<MCTSNode*> rootPath = {root.get()};
     expandAndEvaluate(root.get(), board, rootPath);
-
-    if (!root->children.empty()) {
-      float epsilon = 0.15f;
-      float alpha = 0.3f;
-
-      static std::mt19937 gen(std::random_device{}());
-      std::gamma_distribution<float> dist(alpha, 1.0f);
-
-      std::vector<float> noise(root->children.size());
-      float noiseSum = 0.0f;
-      for (float& n : noise) {
-        n = dist(gen);
-        noiseSum += n;
-      }
-
-      int i = 0;
-      for (auto& [key, child] : root->children) {
-        float noiseVal = noise[i++] / noiseSum;
-        child->prior = (1.0f - epsilon) * child->prior + epsilon * noiseVal;
-      }
-    }
 
     int maxDepth = 0;
     auto startTime = std::chrono::high_resolution_clock::now();
@@ -158,6 +195,14 @@ namespace nyx::engine {
   }
 
   std::pair<game::Move, std::vector<float>> Searcher::getBestMoveAndDistribution(game::Board& board, int simulations) {
+    if (Syzygy::canProbe(board)) {
+      game::Move tbMove = Syzygy::probeDtz(board);
+      std::vector<float> distribution(4352, 0.0f);
+      fillOneHotDistribution(distribution, tbMove);
+      std::cout << "info string tb dtz root_move " << tbMove.toAlgebraic() << std::endl;
+      return {tbMove, distribution};
+    }
+
     auto root = std::make_unique<MCTSNode>(game::Move(), nullptr, 1.0f);
     std::vector<MCTSNode*> rootPath = {root.get()};
     expandAndEvaluate(root.get(), board, rootPath);
@@ -237,7 +282,7 @@ namespace nyx::engine {
 
     for (const auto& [key, child] : node->children) {
       float Q = (child->visitCount > 0) ? child->getQ() : fpuValue;
-      float U = cPuct * child->prior * std::sqrt(totalVisits) / (1 + child->visitCount);
+      float U = cPuct * child->prior * std::sqrt(totalVisits + 1.0f) / (1 + child->visitCount);
 
       float score = Q + U;
       if (score > bestScore) {
@@ -259,6 +304,30 @@ namespace nyx::engine {
   }
 
   void Searcher::expandAndEvaluate(MCTSNode* node, game::Board& board, std::vector<MCTSNode*> path) {
+    if (Syzygy::canProbe(board)) {
+      unsigned wdl = Syzygy::probeWdl(board);
+      if (wdl != kTbResultFailed) {
+        std::string pv;
+        for (size_t i = 1; i < path.size(); ++i) {
+          pv += path[i]->move.toAlgebraic();
+          if (i + 1 < path.size()) pv += " ";
+        }
+
+        const char* wdlStr = "?";
+        switch (wdl) {
+          case kTbLoss: wdlStr = "loss"; break;
+          case kTbBlessedLoss: wdlStr = "blessed_loss"; break;
+          case kTbDraw: wdlStr = "draw"; break;
+          case kTbCursedWin: wdlStr = "cursed_win"; break;
+          case kTbWin: wdlStr = "win"; break;
+        }
+
+        std::cout << "info string tb wdl result=" << wdlStr << " pv " << pv << std::endl;
+        backpropagate(path, wdlToValue(wdl));
+        return;
+      }
+    }
+
     auto legalMoves = MoveGen::generateMoves(board);
     MoveGen::filterLegalMoves(board, legalMoves);
 
@@ -288,7 +357,7 @@ namespace nyx::engine {
 
     auto ttIt = tt.find(boardKey);
     if (ttIt != tt.end()) {
-      const Evaluation& eval = tt[boardKey];
+      const Evaluation& eval = ttIt->second;
       policyData = eval.policy;
       value = eval.value;
     } else {
@@ -312,8 +381,11 @@ namespace nyx::engine {
     float probSum = 0.0f;
     for (const auto& m : legalMoves) {
       int idx = moveToIndex(m);
-      float logProb = policyData[idx];
-      float rawProb = std::exp(logProb);
+      float rawProb = 1.0f;
+      if (idx >= 0 && static_cast<size_t>(idx) < policyData.size()) {
+        float logProb = policyData[idx];
+        rawProb = std::exp(logProb);
+      }
       float flattenedProb = std::pow(rawProb, 1.0f / policyTemp);
       node->children[m.getRaw()] = std::make_unique<MCTSNode>(m, node, flattenedProb);
       probSum += flattenedProb;

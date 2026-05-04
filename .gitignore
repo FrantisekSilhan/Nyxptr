@@ -4,3 +4,4 @@ out/
 libtorch/
 model/
 data/
+tablebases/

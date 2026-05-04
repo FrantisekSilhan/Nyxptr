@@ -77,6 +77,7 @@ namespace nyx::game {
       void undoMove();
       
       bool isDraw() const;
+      bool hasRepeatedPosition() const;
       
       inline uint64_t getZobristKey() const { return zobristKey; }
       inline Color getSideToMove() const { return sideToMove; }
@@ -88,5 +89,6 @@ namespace nyx::game {
       inline uint8_t getCastlingRights() const { return castlingRights; }
       inline Square getEnPassantSquare() const { return enPassantSquare; }
       inline int getFullMoveNumber() const { return fullMoveNumber; }
+      inline int getHalfMoveClock() const { return halfMoveClock; }
   };
 }
