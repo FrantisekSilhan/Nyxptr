@@ -108,11 +108,8 @@ namespace nyx::engine {
 
   game::Move Searcher::findBestMove(game::Board& board, int simulations) {
     if (Syzygy::canProbe(board)) {
-      unsigned wdl = Syzygy::probeWdl(board);
-      if (wdl == kTbWin || wdl == kTbLoss) {
-        game::Move tbMove = Syzygy::probeDtz(board);
-        if (!tbMove.isNone()) return tbMove;
-      }
+      game::Move tbMove = Syzygy::probeDtz(board);
+      if (!tbMove.isNone()) return tbMove;
     }
 
     auto root = std::make_unique<MCTSNode>(game::Move(), nullptr, 1.0f);
@@ -130,7 +127,7 @@ namespace nyx::engine {
       path.push_back(curr);
       bool playoutValid = true;
 
-      while (!curr->children.empty()) {
+      while (!curr->children.empty() && !curr->isTerminal) {
         curr = select(curr);
         if (!tempBoard.makeMove(curr->move)) {
           playoutValid = false;
@@ -167,12 +164,21 @@ namespace nyx::engine {
 
     if (root->children.empty()) return game::Move();
 
-    auto bestIter = std::max_element(root->children.begin(), root->children.end(),
-      [](const auto& a, const auto& b) {
-        return a.second->visitCount < b.second->visitCount;
-      });
+    MCTSNode* bestChild = nullptr;
+    int maxVisits = -1;
 
-    return bestIter->second->move;
+    for (auto& [key, child] : root->children) {
+      if (child->isTerminal && child->terminalValue > 0.99f) {
+        return child->move;
+      }
+
+      if (child->visitCount > maxVisits) {
+        maxVisits = child->visitCount;
+        bestChild = child.get();
+      }
+    }
+
+    return bestChild ? bestChild->move : game::Move();
   }
 
   game::Move Searcher::selectMoveProportionally(MCTSNode* root) {
@@ -271,6 +277,7 @@ namespace nyx::engine {
   }
 
   MCTSNode* Searcher::select(MCTSNode* node) {
+    if (node->isTerminal) return nullptr;
     float bestScore = -std::numeric_limits<float>::infinity();
     MCTSNode* bestChild = nullptr;
 
@@ -307,23 +314,12 @@ namespace nyx::engine {
     if (Syzygy::canProbe(board)) {
       unsigned wdl = Syzygy::probeWdl(board);
       if (wdl != kTbResultFailed) {
-        std::string pv;
-        for (size_t i = 1; i < path.size(); ++i) {
-          pv += path[i]->move.toAlgebraic();
-          if (i + 1 < path.size()) pv += " ";
-        }
+        float value = wdlToValue(wdl);
 
-        const char* wdlStr = "?";
-        switch (wdl) {
-          case kTbLoss: wdlStr = "loss"; break;
-          case kTbBlessedLoss: wdlStr = "blessed_loss"; break;
-          case kTbDraw: wdlStr = "draw"; break;
-          case kTbCursedWin: wdlStr = "cursed_win"; break;
-          case kTbWin: wdlStr = "win"; break;
-        }
+        backpropagate(path, value);
 
-        std::cout << "info string tb wdl result=" << wdlStr << " pv " << pv << std::endl;
-        backpropagate(path, wdlToValue(wdl));
+        node->isTerminal = true;
+        node->terminalValue = value;
         return;
       }
     }

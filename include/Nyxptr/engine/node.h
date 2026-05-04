@@ -32,6 +32,9 @@ namespace nyx::engine {
     float valueSum = 0.0f;
     float prior = 0.0f;
 
+    bool isTerminal = false;
+    float terminalValue = 0.0f;
+
     MCTSNode(game::Move m, MCTSNode* p, float pr) : move(m), parent(p), prior(pr) {}
 
     float getQ() const {

@@ -40,7 +40,7 @@ int main(int argc, char* argv[]) {
 
   std::string MODEL_PATH = "model/nyxptr_v3_epoch3.pt";
   Searcher searcher(MODEL_PATH);
-  int simulations = 10000;
+  int simulations = 1600;
 
   if (argc > 1) {
     std::string mode = argv[1];

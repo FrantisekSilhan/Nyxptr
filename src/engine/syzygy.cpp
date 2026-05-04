@@ -18,6 +18,7 @@
 
 #include "Nyxptr/engine/syzygy.h"
 #include "Nyxptr/game/bits.h"
+#include "Nyxptr/game/movegen.h"
 #include <algorithm>
 #include <array>
 #include <cstdlib>
@@ -31,55 +32,19 @@ extern "C" {
 
 namespace nyx::engine {
   namespace {
-    int countPieces(const game::Board& board) {
-      return bitboard::countBits(board.getCombinedOccupancy());
-    }
-
-    struct TbPosition {
-      uint64_t white;
-      uint64_t black;
-      uint64_t kings;
-      uint64_t queens;
-      uint64_t rooks;
-      uint64_t bishops;
-      uint64_t knights;
-      uint64_t pawns;
-      unsigned rule50;
-      unsigned ep;
-      unsigned castling;
-      bool turn;
-    };
-
-    TbPosition toTbPosition(const game::Board& board) {
-      TbPosition pos{};
-      pos.white = board.getOccupancy(game::Color::White);
-      pos.black = board.getOccupancy(game::Color::Black);
-      pos.kings = board.getBitboard(game::Color::White, game::Piece::King) | board.getBitboard(game::Color::Black, game::Piece::King);
-      pos.queens = board.getBitboard(game::Color::White, game::Piece::Queen) | board.getBitboard(game::Color::Black, game::Piece::Queen);
-      pos.rooks = board.getBitboard(game::Color::White, game::Piece::Rook) | board.getBitboard(game::Color::Black, game::Piece::Rook);
-      pos.bishops = board.getBitboard(game::Color::White, game::Piece::Bishop) | board.getBitboard(game::Color::Black, game::Piece::Bishop);
-      pos.knights = board.getBitboard(game::Color::White, game::Piece::Knight) | board.getBitboard(game::Color::Black, game::Piece::Knight);
-      pos.pawns = board.getBitboard(game::Color::White, game::Piece::Pawn) | board.getBitboard(game::Color::Black, game::Piece::Pawn);
-      pos.rule50 = static_cast<unsigned>(board.getHalfMoveClock());
-      pos.ep = (board.getEnPassantSquare() == game::Square::None) ? 0u : static_cast<unsigned>(board.getEnPassantSquare());
-      pos.castling = board.getCastlingRights();
-      pos.turn = board.getSideToMove() == game::Color::White;
-      return pos;
-    }
-
-    unsigned castlingToTbMask(uint8_t castlingRights) {
-      unsigned tbCastling = 0;
-      if (castlingRights & game::WhiteKingside) tbCastling |= TB_CASTLING_K;
-      if (castlingRights & game::WhiteQueenside) tbCastling |= TB_CASTLING_Q;
-      if (castlingRights & game::BlackKingside) tbCastling |= TB_CASTLING_k;
-      if (castlingRights & game::BlackQueenside) tbCastling |= TB_CASTLING_q;
-      return tbCastling;
-    }
-
-    bool rootMoveBetter(const TbRootMove& lhs, const TbRootMove& rhs) {
-      if (lhs.tbRank != rhs.tbRank) return lhs.tbRank > rhs.tbRank;
-      if (lhs.tbScore != rhs.tbScore) return lhs.tbScore > rhs.tbScore;
-      return lhs.move < rhs.move;
+    unsigned probe_wdl_internal(const game::Board& board) {
+      return tb_probe_wdl_impl(
+        board.getOccupancy(game::Color::White),
+        board.getOccupancy(game::Color::Black),
+        board.getBitboard(game::Color::White, game::Piece::King) | board.getBitboard(game::Color::Black, game::Piece::King),
+        board.getBitboard(game::Color::White, game::Piece::Queen) | board.getBitboard(game::Color::Black, game::Piece::Queen),
+        board.getBitboard(game::Color::White, game::Piece::Rook) | board.getBitboard(game::Color::Black, game::Piece::Rook),
+        board.getBitboard(game::Color::White, game::Piece::Bishop) | board.getBitboard(game::Color::Black, game::Piece::Bishop),
+        board.getBitboard(game::Color::White, game::Piece::Knight) | board.getBitboard(game::Color::Black, game::Piece::Knight),
+        board.getBitboard(game::Color::White, game::Piece::Pawn) | board.getBitboard(game::Color::Black, game::Piece::Pawn),
+        board.getEnPassantSquare() == game::Square::None ? 0 : static_cast<unsigned>(board.getEnPassantSquare()),
+        board.getSideToMove() == game::Color::White
+      );
     }
 
     bool isCastleMove(const game::Square to) {
@@ -87,72 +52,27 @@ namespace nyx::engine {
     }
 
     game::Move convertTbMove(const game::Board& board, TbMove tbMove) {
-      const auto from = static_cast<game::Square>(TB_MOVE_FROM(tbMove));
-      const auto to = static_cast<game::Square>(TB_MOVE_TO(tbMove));
-      const auto movingPiece = board.getPieceAt(from);
-      const auto targetPiece = board.getPieceAt(to);
-      const auto promote = TB_MOVE_PROMOTES(tbMove);
+      auto from = static_cast<game::Square>(TB_MOVE_FROM(tbMove));
+      auto to = static_cast<game::Square>(TB_MOVE_TO(tbMove));
+      auto prom = TB_MOVE_PROMOTES(tbMove);
 
-      if (movingPiece == game::Piece::King && isCastleMove(to)) {
-        if (to == game::Square::G1 || to == game::Square::G8) {
-          return game::Move(from, to, game::Move::KingCastle);
+      auto moves = game::MoveGen::generateMoves(board);
+      game::MoveGen::filterLegalMoves(const_cast<game::Board&>(board), moves);
+
+      for (const auto& m : moves) {
+        if (static_cast<game::Square>(m.getFrom()) == from && static_cast<game::Square>(m.getTo()) == to) {
+          if (prom != TB_PROMOTES_NONE) {
+            uint16_t f = m.getFlags();
+            if (prom == TB_PROMOTES_QUEEN  && (f & 0x3) == 3) return m;
+            if (prom == TB_PROMOTES_ROOK   && (f & 0x3) == 2) return m;
+            if (prom == TB_PROMOTES_BISHOP && (f & 0x3) == 1) return m;
+            if (prom == TB_PROMOTES_KNIGHT && (f & 0x3) == 0) return m;
+            continue;
+          }
+          return m;
         }
-        if (to == game::Square::C1 || to == game::Square::C8) {
-          return game::Move(from, to, game::Move::QueenCastle);
-        }
       }
-
-      if (movingPiece == game::Piece::Pawn && board.getEnPassantSquare() == to && targetPiece == game::Piece::None) {
-        return game::Move(from, to, game::Move::EnPassant);
-      }
-
-      if (movingPiece == game::Piece::Pawn && targetPiece == game::Piece::None &&
-          game::to_i(from) % 8 == game::to_i(to) % 8 && std::abs(static_cast<int>(to) - static_cast<int>(from)) == 16) {
-        return game::Move(from, to, game::Move::DoublePawnPush);
-      }
-
-      if (promote != TB_PROMOTES_NONE) {
-        game::Move::Flags promotionFlag = game::Move::ProjQueen;
-        switch (promote) {
-          case TB_PROMOTES_QUEEN: promotionFlag = game::Move::ProjQueen; break;
-          case TB_PROMOTES_ROOK: promotionFlag = game::Move::ProjRook; break;
-          case TB_PROMOTES_BISHOP: promotionFlag = game::Move::ProjBishop; break;
-          case TB_PROMOTES_KNIGHT: promotionFlag = game::Move::ProjKnight; break;
-          default: break;
-        }
-
-        if (targetPiece != game::Piece::None) {
-          return game::Move(from, to, static_cast<game::Move::Flags>(game::Move::Promotion | game::Move::Capture | promotionFlag));
-        }
-        return game::Move(from, to, static_cast<game::Move::Flags>(game::Move::Promotion | promotionFlag));
-      }
-
-      if (targetPiece != game::Piece::None) {
-        return game::Move(from, to, game::Move::Capture);
-      }
-
-      return game::Move(from, to, game::Move::Quiet);
-    }
-
-    bool probeRoot(const TbPosition& pos, bool useRule50, bool hasRepeated, TbRootMoves& rootMoves, bool& usedDtz) {
-      rootMoves.size = 0;
-      usedDtz = false;
-
-      const unsigned tbCastling = castlingToTbMask(static_cast<uint8_t>(pos.castling));
-      if (tbCastling != 0) {
-        return false;
-      }
-
-      int ok = tb_probe_root_dtz(pos.white, pos.black, pos.kings, pos.queens, pos.rooks, pos.bishops, pos.knights, pos.pawns,
-                                 pos.rule50, tbCastling, pos.ep, pos.turn, hasRepeated, useRule50, &rootMoves);
-      if (ok) {
-        usedDtz = true;
-        return true;
-      }
-
-      ok = tb_probe_root_wdl(pos.white, pos.black, pos.kings, pos.queens, pos.rooks, pos.bishops, pos.knights, pos.pawns,
-                             pos.rule50, tbCastling, pos.ep, pos.turn, useRule50, &rootMoves);
-      return ok != 0;
+      return game::Move();
     }
   }
 
@@ -161,61 +81,55 @@ namespace nyx::engine {
   }
 
   bool Syzygy::canProbe(const game::Board& board) {
-    if (TB_LARGEST == 0) {
+    if (TB_LARGEST == 0 || board.getCastlingRights() != 0) {
       return false;
     }
 
-    if (board.getCastlingRights() != 0) {
-      return false;
-    }
+    int count = bitboard::countBits(board.getCombinedOccupancy());
+    return count <= static_cast<int>(TB_LARGEST);
+  }
 
-    return countPieces(board) <= static_cast<int>(TB_LARGEST);
+  unsigned Syzygy::probeWdl(const game::Board& board) {
+    if (!canProbe(board)) return TB_RESULT_FAILED;
+    return probe_wdl_internal(board);
   }
 
   game::Move Syzygy::convertTbMoveToNyxptrMove(const game::Board& board, uint16_t tbMove) {
     return convertTbMove(board, tbMove);
   }
 
-  unsigned Syzygy::probeWdl(const game::Board& board) {
-    if (!canProbe(board)) {
-      return TB_RESULT_FAILED;
-    }
-
-    const TbPosition pos = toTbPosition(board);
-    const unsigned tbCastling = castlingToTbMask(static_cast<uint8_t>(pos.castling));
-    if (tbCastling != 0) {
-      return TB_RESULT_FAILED;
-    }
-
-    return tb_probe_wdl_impl(pos.white, pos.black, pos.kings, pos.queens, pos.rooks, pos.bishops, pos.knights, pos.pawns, pos.ep, pos.turn);
-  }
-
   game::Move Syzygy::probeDtz(const game::Board& board) {
-    if (!canProbe(board)) {
-      return game::Move();
-    }
+    if (!canProbe(board)) return game::Move();
 
-    const TbPosition pos = toTbPosition(board);
-    TbRootMoves rootMoves{};
-    bool usedDtz = false;
+    TbRootMoves rm;
 
-    if (!probeRoot(pos, true, board.hasRepeatedPosition(), rootMoves, usedDtz) || rootMoves.size == 0) {
-      return game::Move();
-    }
+    int success = tb_probe_root_dtz(
+      board.getOccupancy(game::Color::White),
+      board.getOccupancy(game::Color::Black),
+      board.getBitboard(game::Color::White, game::Piece::King) | board.getBitboard(game::Color::Black, game::Piece::King),
+      board.getBitboard(game::Color::White, game::Piece::Queen) | board.getBitboard(game::Color::Black, game::Piece::Queen),
+      board.getBitboard(game::Color::White, game::Piece::Rook) | board.getBitboard(game::Color::Black, game::Piece::Rook),
+      board.getBitboard(game::Color::White, game::Piece::Bishop) | board.getBitboard(game::Color::Black, game::Piece::Bishop),
+      board.getBitboard(game::Color::White, game::Piece::Knight) | board.getBitboard(game::Color::Black, game::Piece::Knight),
+      board.getBitboard(game::Color::White, game::Piece::Pawn) | board.getBitboard(game::Color::Black, game::Piece::Pawn),
+      board.getHalfMoveClock(),
+      0, 
+      board.getEnPassantSquare() == game::Square::None ? 0 : static_cast<unsigned>(board.getEnPassantSquare()),
+      board.getSideToMove() == game::Color::White,
+      board.hasRepeatedPosition(),
+      true,
+      &rm
+    );
 
-    const TbRootMove* best = nullptr;
-    for (unsigned i = 0; i < rootMoves.size; ++i) {
-      const TbRootMove& candidate = rootMoves.moves[i];
-      if (candidate.move == 0) continue;
-      if (best == nullptr || rootMoveBetter(candidate, *best)) {
-        best = &candidate;
+    if (!success || rm.size == 0) return game::Move();
+
+    unsigned bestIdx = 0;
+    for (unsigned i = 1; i < rm.size; ++i) {
+      if (rm.moves[i].tbRank > rm.moves[bestIdx].tbRank) {
+        bestIdx = i;
       }
     }
 
-    if (best == nullptr) {
-      return game::Move();
-    }
-
-    return convertTbMoveToNyxptrMove(board, best->move);
+    return convertTbMoveToNyxptrMove(board, rm.moves[bestIdx].move);
   }
 }

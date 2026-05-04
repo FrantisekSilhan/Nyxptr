@@ -2365,9 +2365,14 @@ static int root_probe_dtz(const Pos *pos, bool hasRepeated, bool useRule50, stru
     // Note that moves ranked 900 have dtz + cnt50 == 100, which in rare
     // cases may be insufficient to win as dtz may be one off (see the
     // comments before TB_probe_dtz()).
-    int r =  v > 0 ? (v + cnt50 <= 99 && !hasRepeated ? 1000 : 1000 - (v + cnt50))
-           : v < 0 ? (-v * 2 + cnt50 < 100 ? -1000 : -1000 + (-v + cnt50))
-           : 0;
+    int r = 0;
+    if (v > 0) {
+      r = 1000 - v; 
+    } else if (v < 0) {
+      r = -1000 - v; 
+    } else {
+      r = 0;
+    }
     m->tbRank = r;
 
     // Determine the score to be displayed for this move. Assign at least
