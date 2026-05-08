@@ -34,7 +34,7 @@ namespace nyx::game {
 
       while (sliders) {
         Square from = popLSBSquare(sliders);
-        const lookups::Magic& m = isRook ? lookups::rookMagics[static_cast<int>(from)] : lookups::bishopMagics[static_cast<int>(from)];
+        const lookups::Magic& m = isRook ? lookups::rookMagics[to_i(from)] : lookups::bishopMagics[to_i(from)];
 
         uint64_t attacks = m.ptr[getMagicIndex(m, occupancy)] & enemyOrEmpty;
 
@@ -50,9 +50,9 @@ namespace nyx::game {
       const uint64_t pawns = board.getBitboard(us, Piece::Pawn);
       const uint64_t empty = ~board.getCombinedOccupancy();
       const uint64_t enemies = board.getOccupancy(!us);
-      const uint64_t enPassantBB = (board.getEnPassantSquare() == Square::None) 
-                                  ? 0 
-                                  : (1ULL << static_cast<int>(board.getEnPassantSquare()));
+
+      const Square epSq = board.getEnPassantSquare();
+      const uint64_t enPassantBB = (epSq == Square::None) ? 0 : (1ULL << to_i(epSq));
 
       const uint64_t notAFile = 0xFEFEFEFEFEFEFEFEULL;
       const uint64_t notHFile = 0x7F7F7F7F7F7F7F7FULL;
@@ -66,11 +66,11 @@ namespace nyx::game {
 
         while (pushQuiets) {
           Square to = popLSBSquare(pushQuiets);
-          moves.emplace_back(static_cast<Square>(static_cast<int>(to) - 8), to, Move::Quiet);
+          moves.emplace_back(static_cast<Square>(to_i(to) - 8), to, Move::Quiet);
         }
         while (pushPromos) {
           Square to = popLSBSquare(pushPromos);
-          Square from = static_cast<Square>(static_cast<int>(to) - 8);
+          Square from = static_cast<Square>(to_i(to) - 8);
           moves.emplace_back(from, to, Move::Promotion | Move::ProjQueen);
           moves.emplace_back(from, to, Move::Promotion | Move::ProjRook);
           moves.emplace_back(from, to, Move::Promotion | Move::ProjBishop);
@@ -78,7 +78,7 @@ namespace nyx::game {
         }
         while (doublePush) {
           Square to = popLSBSquare(doublePush);
-          moves.emplace_back(static_cast<Square>(static_cast<int>(to) - 16), to, Move::DoublePawnPush);
+          moves.emplace_back(static_cast<Square>(to_i(to) - 16), to, Move::DoublePawnPush);
         }
       } else {
         uint64_t singlePush = (pawns >> 8) & empty;
@@ -89,11 +89,11 @@ namespace nyx::game {
 
         while (pushQuiets) {
           Square to = popLSBSquare(pushQuiets);
-          moves.emplace_back(static_cast<Square>(static_cast<int>(to) + 8), to, Move::Quiet);
+          moves.emplace_back(static_cast<Square>(to_i(to) + 8), to, Move::Quiet);
         }
         while (pushPromos) {
           Square to = popLSBSquare(pushPromos);
-          Square from = static_cast<Square>(static_cast<int>(to) + 8);
+          Square from = static_cast<Square>(to_i(to) + 8);
           moves.emplace_back(from, to, Move::Promotion | Move::ProjQueen);
           moves.emplace_back(from, to, Move::Promotion | Move::ProjRook);
           moves.emplace_back(from, to, Move::Promotion | Move::ProjBishop);
@@ -101,15 +101,15 @@ namespace nyx::game {
         }
         while (doublePush) {
           Square to = popLSBSquare(doublePush);
-          moves.emplace_back(static_cast<Square>(static_cast<int>(to) + 16), to, Move::DoublePawnPush);
+          moves.emplace_back(static_cast<Square>(to_i(to) + 16), to, Move::DoublePawnPush);
         }
       }
 
       auto addCaptures = [&](uint64_t targets, int offset) {
         while (targets) {
           Square to = popLSBSquare(targets);
-          Square from = static_cast<Square>(static_cast<int>(to) - offset);
-          if ((1ULL << static_cast<int>(to)) & (us == Color::White ? 0xFF00000000000000ULL : 0x00000000000000FFULL)) {
+          Square from = static_cast<Square>(to_i(to) - offset);
+          if ((1ULL << to_i(to)) & (us == Color::White ? 0xFF00000000000000ULL : 0x00000000000000FFULL)) {
             moves.emplace_back(from, to, Move::Promotion | Move::Capture | Move::ProjQueen);
             moves.emplace_back(from, to, Move::Promotion | Move::Capture | Move::ProjRook);
             moves.emplace_back(from, to, Move::Promotion | Move::Capture | Move::ProjBishop);
@@ -126,16 +126,16 @@ namespace nyx::game {
         
         uint64_t epLeft = ((pawns & notAFile) << 7) & enPassantBB;
         uint64_t epRight = ((pawns & notHFile) << 9) & enPassantBB;
-        if (epLeft) moves.emplace_back(static_cast<Square>(static_cast<int>(getLSBSquare(epLeft)) - 7), getLSBSquare(epLeft), Move::EnPassant);
-        if (epRight) moves.emplace_back(static_cast<Square>(static_cast<int>(getLSBSquare(epRight)) - 9), getLSBSquare(epRight), Move::EnPassant);
+        if (epLeft) moves.emplace_back(static_cast<Square>(to_i(getLSBSquare(epLeft)) - 7), getLSBSquare(epLeft), Move::EnPassant);
+        if (epRight) moves.emplace_back(static_cast<Square>(to_i(getLSBSquare(epRight)) - 9), getLSBSquare(epRight), Move::EnPassant);
       } else {
         addCaptures((pawns & notHFile) >> 7 & enemies, -7);
         addCaptures((pawns & notAFile) >> 9 & enemies, -9);
 
-        uint64_t epRight = ((pawns & notAFile) >> 9) & enPassantBB;
         uint64_t epLeft = ((pawns & notHFile) >> 7) & enPassantBB;
-        if (epLeft) moves.emplace_back(static_cast<Square>(static_cast<int>(getLSBSquare(epLeft)) + 9), getLSBSquare(epLeft), Move::EnPassant);
-        if (epRight) moves.emplace_back(static_cast<Square>(static_cast<int>(getLSBSquare(epRight)) + 7), getLSBSquare(epRight), Move::EnPassant);
+        uint64_t epRight = ((pawns & notAFile) >> 9) & enPassantBB;
+        if (epLeft) moves.emplace_back(static_cast<Square>(to_i(getLSBSquare(epLeft)) + 7), getLSBSquare(epLeft), Move::EnPassant);
+        if (epRight) moves.emplace_back(static_cast<Square>(to_i(getLSBSquare(epRight)) + 9), getLSBSquare(epRight), Move::EnPassant);
       }
     }
 
@@ -146,7 +146,7 @@ namespace nyx::game {
 
       while (knights) {
         Square from = popLSBSquare(knights);
-        uint64_t targets = lookups::knightTable[static_cast<int>(from)] & ~ourPieces;
+        uint64_t targets = lookups::knightTable[to_i(from)] & ~ourPieces;
 
         while (targets) {
           Square to = popLSBSquare(targets);
@@ -174,7 +174,7 @@ namespace nyx::game {
       if (!king) return;
 
       Square from = getLSBSquare(king);
-      uint64_t targets = lookups::kingTable[static_cast<int>(from)] & ~board.getOccupancy(us);
+      uint64_t targets = lookups::kingTable[to_i(from)] & ~board.getOccupancy(us);
 
       while (targets) {
         Square to = popLSBSquare(targets);
