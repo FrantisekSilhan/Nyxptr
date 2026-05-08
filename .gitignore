@@ -5,3 +5,4 @@ libtorch/
 model/
 data/
 tablebases/
+train/
