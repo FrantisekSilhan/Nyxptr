@@ -44,7 +44,16 @@ int main(int argc, char* argv[]) {
 
   if (argc > 1) {
     std::string mode = argv[1];
-    if (mode == "--convert") {
+    if (mode == "--convert-puzzles") {
+      if (argc < 4) {
+        std::cerr << "Usage: " << argv[0] << " --convert-puzzles csv_path bin_path_base" << std::endl;
+        return 1;
+      }
+      std::string csvPath = argv[2];
+      std::string binPathBase = argv[3];
+      DataConverter::convertLichessPuzzles(csvPath, binPathBase);
+      return 0;
+    } else if (mode == "--convert") {
       if (argc < 4) {
         std::cerr << "Usage: " << argv[0] << " --convert pgn_directory bin_directory" << std::endl;
         return 1;
@@ -61,8 +70,7 @@ int main(int argc, char* argv[]) {
         }
       }
        return 0;
-    }
-    if (mode == "--selfplay") {
+    } else if (mode == "--selfplay") {
       int games = (argc > 2) ? std::stoi(argv[2]) : 50;
       int sims = (argc > 3) ? std::stoi(argv[3]) : 800;
       std::string outputFile = (argc > 4) ? argv[4] : "selfplay_data.bin";
@@ -70,7 +78,7 @@ int main(int argc, char* argv[]) {
     } else if (mode == "--uci") {
       UCI::loop(searcher, simulations);
     } else {
-      std::cerr << "Args: " << argv[0] << " [--selfplay numGames simsPerMove] | [--uci]" << std::endl;
+      std::cerr << "Args: " << argv[0] << " [--selfplay numGames simsPerMove] | [--uci] | [--convert pgnDir binDir] | [--convert-puzzles csv binPathBase]" << std::endl;
       return 1;
     }
   } else {

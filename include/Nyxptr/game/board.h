@@ -59,6 +59,8 @@ namespace nyx::game {
       void addPiece(Square sq, Piece p, Color c);
       void removePiece(Square sq, Piece p, Color c);
 
+      void resetBoard();
+
     public:
       Board();
       static void initZobrist();
@@ -78,6 +80,8 @@ namespace nyx::game {
       
       bool isDraw() const;
       bool hasRepeatedPosition() const;
+
+      void loadFEN(const std::string& fen);
       
       inline uint64_t getZobristKey() const { return zobristKey; }
       inline Color getSideToMove() const { return sideToMove; }

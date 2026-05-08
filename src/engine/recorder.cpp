@@ -102,6 +102,17 @@ namespace nyx::engine {
     fileStream.flush();
   }
 
+  void PRecorder::finishPuzzle(float result) {
+    if (!fileStream.is_open()) return;
+
+    for (const auto& step : gameBuffer) {
+      writeToDisk(step, result);
+    }
+    
+    gameBuffer.clear();
+    fileStream.flush();
+  }
+
   void PRecorder::writeToDisk(const PStep& step, float result) {
     fileStream.write(reinterpret_cast<const char*>(step.planes), 13 * sizeof(uint64_t));
     fileStream.write(reinterpret_cast<const char*>(&step.moveIndex), sizeof(uint16_t));

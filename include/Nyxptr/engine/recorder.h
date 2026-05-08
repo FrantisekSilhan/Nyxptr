@@ -52,6 +52,7 @@ namespace nyx::engine {
 
       void recordStep(const game::Board& board, game::Move bestMove);
       void finishGame(float finalResult);
+      void finishPuzzle(float result);
 
     private:
       struct PStep {

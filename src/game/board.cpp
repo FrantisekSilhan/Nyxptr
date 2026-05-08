@@ -19,9 +19,15 @@
 #include "Nyxptr/game/board.h"
 #include "Nyxptr/game/lookups.h"
 #include <random>
+#include <sstream>
+#include <cctype>
 
 namespace nyx::game {
   Board::Board() {
+    resetBoard();
+  }
+
+  void Board::resetBoard() {
     for (int c = 0; c < 2; ++c) {
       colorOccupancy[c] = 0ULL;
       kingSquare[c] = Square::None;
@@ -67,6 +73,82 @@ namespace nyx::game {
 
     zobristKey ^= sideKey;
     zobristKey ^= castlingKeys[castlingRights];
+  }
+
+  void Board::loadFEN(const std::string& fen) {
+    for (int c = 0; c < 2; ++c) {
+      colorOccupancy[c] = 0ULL;
+      kingSquare[c] = Square::None;
+      for (int p = 0; p < 6; ++p) bitboards[c][p] = 0ULL;
+    }
+    combinedOccupancy = 0ULL;
+    zobristKey = 0ULL;
+    for (int i = 0; i < 64; ++i) {
+      boardArray[i] = Piece::None;
+      colorArray[i] = Color::None;
+    }
+    history.clear();
+
+    std::istringstream ss(fen);
+    std::string placement, side, castling, enPassant, halfMove, fullMove;
+    ss >> placement >> side >> castling >> enPassant >> halfMove >> fullMove;
+
+    int rank = 7, file = 0;
+    for (char c : placement) {
+      if (c == '/') {
+        rank--;
+        file = 0;
+      } else if (std::isdigit(c)) {
+        file += (c - '0');
+      } else {
+        Square sq = static_cast<Square>(rank * 8 + file);
+        Color color = std::isupper(c) ? Color::White : Color::Black;
+        char lowerC = static_cast<char>(std::tolower(c));
+        Piece piece;
+
+        switch (lowerC) {
+          case 'p': piece = Piece::Pawn; break;
+          case 'n': piece = Piece::Knight; break;
+          case 'b': piece = Piece::Bishop; break;
+          case 'r': piece = Piece::Rook; break;
+          case 'q': piece = Piece::Queen; break;
+          case 'k': {
+            piece = Piece::King;
+            kingSquare[to_i(color)] = sq;
+            break;
+          }
+          default: continue;
+        }
+
+        addPiece(sq, piece, color);
+        file++;
+      }
+    }
+
+    sideToMove = (side == "w") ? Color::White : Color::Black;
+    castlingRights = 0;
+    if (castling != "-") {
+      for (char c : castling) {
+        switch (c) {
+          case 'K': castlingRights |= WhiteKingside; break;
+          case 'Q': castlingRights |= WhiteQueenside; break;
+          case 'k': castlingRights |= BlackKingside; break;
+          case 'q': castlingRights |= BlackQueenside; break;
+        }
+      }
+    }
+
+    enPassantSquare = (enPassant != "-") ? static_cast<Square>((enPassant[1] - '1') * 8 + (enPassant[0] - 'a')) : Square::None;
+    halfMoveClock = std::stoi(halfMove);
+    fullMoveNumber = std::stoi(fullMove);
+
+    if (sideToMove == Color::White) {
+      zobristKey ^= sideKey;
+    }
+    zobristKey ^= castlingKeys[castlingRights];
+    if (enPassantSquare != Square::None) {
+      zobristKey ^= enPassantKeys[to_i(enPassantSquare)];
+    }
   }
 
   static constexpr uint64_t NYX_SEED = 0x4E7978707472ULL;

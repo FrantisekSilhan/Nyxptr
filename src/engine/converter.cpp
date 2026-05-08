@@ -237,4 +237,117 @@ namespace nyx::engine {
 
     return game::Move();
   }
+
+  void DataConverter::convertLichessPuzzles(const std::string& csvPath, const std::string& binPathBase) {
+    std::ifstream file(csvPath);
+    std::ofstream errorLog("puzzle_errors.txt");
+    if (!file.is_open()) return;
+    std::string line;
+    std::getline(file, line); // Skip header
+
+    int count = 0, skippedCount = 0;
+    int fileIndex = 1;
+    const int PUZZLES_PER_FILE = 500000;
+
+    std::unique_ptr<PRecorder> recorder = std::make_unique<PRecorder>(binPathBase + "_01.bin");
+
+    while (std::getline(file, line)) {
+      std::vector<std::string> cols;
+      std::stringstream ss(line);
+      std::string cell;
+      while (std::getline(ss, cell, ',')) cols.push_back(cell);
+      
+      if (cols.size() < 3) {
+        skippedCount++;
+        continue;
+      }
+      
+      const std::string& fen = cols[1];
+      const std::string& movesStr = cols[2];
+      const std::string& themes = (cols.size() > 7) ? cols[7] : "";
+      
+      game::Board board;
+      try {
+        board.loadFEN(fen);
+      } catch (...) {
+        errorLog << "FEN_PARSE_ERROR | " << fen << std::endl;
+        skippedCount++;
+        continue;
+      }
+      
+      std::stringstream mss(movesStr);
+      std::string uci;
+      
+      if (mss >> uci) {
+        auto legal = game::MoveGen::generateMoves(board);
+        game::MoveGen::filterLegalMoves(board, legal);
+        bool moved = false;
+        for (const auto& m : legal) {
+          if (m.toAlgebraic() == uci) {
+            if (board.makeMove(m)) {
+              moved = true;
+              break;
+            }
+          }
+        }
+        if (!moved) {
+          errorLog << "ILLEGAL_PREMOVE | move: " << uci << " | fen: " << fen << std::endl;
+          skippedCount++;
+          continue;
+        }
+      }
+      
+      bool playerTurn = true;
+      bool puzzleValid = true;
+      while (mss >> uci) {
+        auto legal = game::MoveGen::generateMoves(board);
+        game::MoveGen::filterLegalMoves(board, legal);
+        
+        game::Move bestMove;
+        for (const auto& m : legal) {
+          if (m.toAlgebraic() == uci) {
+            bestMove = m;
+            break;
+          }
+        }
+        
+        if (bestMove.isNone()) {
+          errorLog << "MOVE_NOT_FOUND | move: " << uci << " | turn: " << (playerTurn ? "Player" : "Opponent") << " | fen: " << fen << std::endl;
+          puzzleValid = false;
+          break;
+        }
+        
+        if (playerTurn) recorder->recordStep(board, bestMove);
+        board.makeMove(bestMove);
+        playerTurn = !playerTurn;
+      }
+
+      if (!puzzleValid) {
+        skippedCount++;
+        continue;
+      }
+
+      float result = 0.0f;
+      if (themes.find("mate") != std::string::npos) result = 1.0f;
+      else if (themes.find("crushing") != std::string::npos) result = 0.95f;
+      else if (themes.find("advantage") != std::string::npos) result = 0.8f;
+      else if (themes.find("equality") != std::string::npos) result = 0.0f;
+      else result = 0.5f; // Unknown result, treat as a slight advantage (shouldn't happen at all)
+      
+      recorder->finishPuzzle(result);
+      count++;
+
+      if (count > 0 && count % PUZZLES_PER_FILE == 0) {
+        fileIndex++;
+        std::string paddedIndex = (fileIndex < 10) ? "0" + std::to_string(fileIndex) : std::to_string(fileIndex);
+        std::string newPath = binPathBase + "_" + paddedIndex + ".bin";
+        
+        std::cout << "\n[Split] Rotating to new file: " << newPath << std::endl;
+        recorder = std::make_unique<PRecorder>(newPath);
+      }
+      if (count % 50000 == 0) std::cout << "Converted " << count << " puzzles..." << std::endl;
+    }
+    std::cout << "\nDone. Created " << fileIndex << " puzzle shards." << std::endl;
+    std::cout << "Skipped " << skippedCount << " puzzles due to errors or invalid data." << std::endl;
+  }
 }

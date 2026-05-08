@@ -26,6 +26,7 @@ namespace nyx::engine {
   class DataConverter {
     public:
       static void convertPGNToBinary(const std::string& pgnPath, const std::string& binPath);
+      static void convertLichessPuzzles(const std::string& csvPath, const std::string& binPathBase);
 
     private:
       static game::Move findMoveInPGN(game::Board& board, std::string san);
