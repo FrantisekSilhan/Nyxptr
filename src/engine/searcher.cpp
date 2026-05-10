@@ -47,31 +47,12 @@ namespace nyx::engine {
       }
     }
 
-    void fillOneHotDistribution(std::vector<float>& distribution, const game::Move& move) {
-      if (move.isNone()) {
-        return;
-      }
+    void fillOneHotDistribution(std::vector<float>& dist, const game::Move& move) {
+      if (move.isNone()) return;
 
-      const int from = game::to_i(move.getFrom());
-      const int to = game::to_i(move.getTo());
-      const uint16_t flags = move.getFlags();
-
-      int idx = 0;
-      if (!(flags & game::Move::Promotion)) {
-        idx = from * 64 + to;
-      } else {
-        const uint16_t pieceType = flags & 0x3;
-        switch (pieceType) {
-          case 0: idx = 4096 + to; break;
-          case 1: idx = 4096 + 64 + to; break;
-          case 2: idx = 4096 + 128 + to; break;
-          case 3: idx = 4096 + 192 + to; break;
-          default: idx = from * 64 + to; break;
-        }
-      }
-
-      if (idx >= 0 && static_cast<size_t>(idx) < distribution.size()) {
-        distribution[idx] = 1.0f;
+      int index = Searcher::moveToIndex(move);
+      if (index >= 0 && index < to_i(dist.size())) {
+        dist[index] = 1.0f;
       }
     }
   }
@@ -113,8 +94,9 @@ namespace nyx::engine {
     }
 
     auto root = std::make_unique<MCTSNode>(game::Move(), nullptr, 1.0f);
-    std::vector<MCTSNode*> rootPath = {root.get()};
-    expandAndEvaluate(root.get(), board, rootPath);
+    float rootEval = expandAndEvaluate(root.get(), board);
+    root->valueSum = rootEval;
+    root->visitCount = 1;
 
     int maxDepth = 0;
     auto startTime = std::chrono::high_resolution_clock::now();
@@ -122,28 +104,25 @@ namespace nyx::engine {
     for (int i = 0; i < simulations; ++i) {
       game::Board tempBoard = board;
       std::vector<MCTSNode*> path;
-
       MCTSNode* curr = root.get();
       path.push_back(curr);
-      bool playoutValid = true;
 
       while (!curr->children.empty() && !curr->isTerminal) {
         curr = select(curr);
-        if (!tempBoard.makeMove(curr->move)) {
-          playoutValid = false;
-          break;
-        }
+        if (!tempBoard.makeMove(curr->move)) break;
         path.push_back(curr);
       }
 
-      if (!playoutValid) {
-        continue;
+      if (static_cast<int>(path.size()) > maxDepth) maxDepth = path.size();
+      float value = expandAndEvaluate(curr, tempBoard);
+
+      for (auto it = path.rbegin(); it != path.rend(); ++it) {
+        (*it)->visitCount++;
+        (*it)->valueSum += value;
+        value = -value;
       }
 
-      if (static_cast<int>(path.size()) > maxDepth) maxDepth = path.size();
-      expandAndEvaluate(curr, tempBoard, path);
-
-      if (i > 0 && i % 100 == 0) {
+      if (i > 0 && i % 500 == 0) {
         auto now = std::chrono::high_resolution_clock::now();
         auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - startTime).count();
         float nps = (ms > 0) ? (i * 1000.0f / ms) : 0.0f;
@@ -153,25 +132,18 @@ namespace nyx::engine {
             return a.second->visitCount < b.second->visitCount;
           });
 
-        int cpScore = static_cast<int>(root->getQ() * 1000.0f);
         std::cout << "info depth " << maxDepth
                   << " nodes " << i
                   << " nps " << static_cast<int>(nps)
-                  << " score cp " << cpScore
+                  << " score cp " << static_cast<int>(root->getQ() * 1000.0f)
                   << " pv " << bestSoFar->second->move.toAlgebraic() << std::endl;
       }
     }
-
-    if (root->children.empty()) return game::Move();
 
     MCTSNode* bestChild = nullptr;
     int maxVisits = -1;
 
     for (auto& [key, child] : root->children) {
-      if (child->isTerminal && child->terminalValue > 0.99f) {
-        return child->move;
-      }
-
       if (child->visitCount > maxVisits) {
         maxVisits = child->visitCount;
         bestChild = child.get();
@@ -179,6 +151,93 @@ namespace nyx::engine {
     }
 
     return bestChild ? bestChild->move : game::Move();
+  }
+
+  MCTSNode* Searcher::select(MCTSNode* node) {
+    float bestScore = -std::numeric_limits<float>::infinity();
+    MCTSNode* bestChild = nullptr;
+    float fpuValue = node->getQ() - fpuReduction;
+
+    for (const auto& [key, child] : node->children) {
+      float Q = (child->visitCount > 0) ? child->getQ() : fpuValue;
+      float U = cPuct * child->prior * std::sqrtf(static_cast<float>(node->visitCount)) / (1.0f + child->visitCount);
+
+      float score = Q + U;
+      if (score > bestScore) {
+        bestScore = score;
+        bestChild = child.get();
+      }
+    }
+
+    return bestChild;
+  }
+
+  float Searcher::expandAndEvaluate(MCTSNode* node, game::Board& board) {
+    if (node->isTerminal) return node->terminalValue;
+
+    // Probe Syzygy tablebase
+    if (Syzygy::canProbe(board)) {
+      unsigned wdl = Syzygy::probeWdl(board);
+      if (wdl != kTbResultFailed) {
+        node->isTerminal = true;
+        node->terminalValue = wdlToValue(wdl);
+        return node->terminalValue;
+      }
+    }
+
+    auto legalMoves = MoveGen::generateMoves(board);
+    MoveGen::filterLegalMoves(board, legalMoves);
+
+    // Detect checkmate / draw before expansion
+    if (legalMoves.empty()) {
+      node->isTerminal = true;
+      node->terminalValue = board.isCheck(board.getSideToMove()) ? -1.0f : drawPenalty;
+      return node->terminalValue;
+    }
+    if (board.isDraw()) {
+      node->isTerminal = true;
+      node->terminalValue = drawPenalty;
+      return node->terminalValue;
+    }
+
+    // Neural network inference
+    uint64_t boardKey = board.getZobristKey();
+    std::vector<float> policyData;
+    float value;
+
+    auto ttIt = tt.find(boardKey);
+    if (ttIt != tt.end()) {
+      const Evaluation& eval = ttIt->second;
+      policyData = eval.policy;
+      value = eval.value;
+    } else {
+      std::vector<float> tensorData = board.getFullStateTensor();
+      torch::Tensor input = torch::from_blob(tensorData.data(), {1, 13, 8, 8}).to(device);
+      auto outputs = model.forward({input}).toTuple();
+
+      torch::Tensor pT = outputs->elements()[0].toTensor().to(torch::kCPU);
+      torch::Tensor vT = outputs->elements()[1].toTensor().to(torch::kCPU);
+
+      value = vT.item<float>();
+      policyData.assign(pT.data_ptr<float>(), pT.data_ptr<float>() + pT.numel());
+      tt[boardKey] = { policyData, value };
+    }
+
+    // Expansion
+    float probSum = 0.0f;
+    for (const auto& m : legalMoves) {
+      int idx = moveToIndex(m);
+      float rawProb = std::exp(policyData[idx]);
+      float flattenedProb = std::pow(rawProb, 1.0f / policyTemp);
+      node->children[m.getRaw()] = std::make_unique<MCTSNode>(m, node, flattenedProb);
+      probSum += flattenedProb;
+    }
+
+    for (auto& [key, child] : node->children) {
+      child->prior /= (probSum > 0) ? probSum : 1.0f;
+    }
+
+    return value;
   }
 
   game::Move Searcher::selectMoveProportionally(MCTSNode* root) {
@@ -189,9 +248,9 @@ namespace nyx::engine {
     float totalVisits = 0.0f;
 
     for (const auto& [key, child] : root->children) {
-      visits.push_back(static_cast<float>(child->visitCount));
+      visits.push_back(std::pow(static_cast<float>(child->visitCount), 1.0f / policyTemp));
       moves.push_back(child->move);
-      totalVisits += child->visitCount;
+      totalVisits += visits.back();
     }
 
     if (totalVisits == 0.0f) return game::Move();
@@ -205,20 +264,20 @@ namespace nyx::engine {
       game::Move tbMove = Syzygy::probeDtz(board);
       std::vector<float> distribution(4352, 0.0f);
       fillOneHotDistribution(distribution, tbMove);
-      std::cout << "info string tb dtz root_move " << tbMove.toAlgebraic() << std::endl;
       return {tbMove, distribution};
     }
 
     auto root = std::make_unique<MCTSNode>(game::Move(), nullptr, 1.0f);
-    std::vector<MCTSNode*> rootPath = {root.get()};
-    expandAndEvaluate(root.get(), board, rootPath);
+    float rootEval = expandAndEvaluate(root.get(), board);
+    root->valueSum = rootEval;
+    root->visitCount = 1;
 
     if (!root->children.empty()) {
-      float epsilon = 0.25f;
-      float alpha = 0.3f;
+      constexpr float kEpsilon = 0.25f;
+      constexpr float kAlpha = 0.3f;
 
       static std::mt19937 gen(std::random_device{}());
-      std::gamma_distribution<float> dist(alpha, 1.0f);
+      std::gamma_distribution<float> dist(kAlpha, 1.0f);
 
       std::vector<float> noise(root->children.size());
       float noiseSum = 0.0f;
@@ -229,170 +288,47 @@ namespace nyx::engine {
 
       int i = 0;
       for (auto& [key, child] : root->children) {
-        float noiseVal = noise[i++] / noiseSum;
-        child->prior = (1.0f - epsilon) * child->prior + epsilon * noiseVal;
+        float n = noise[i++] / noiseSum;
+        child->prior = (1.0f - kEpsilon) * child->prior + kEpsilon * n;
       }
     }
 
     for (int i = 0; i < simulations; ++i) {
       game::Board tempBoard = board;
       std::vector<MCTSNode*> path;
-
       MCTSNode* curr = root.get();
       path.push_back(curr);
-      bool playoutValid = true;
 
-      while (!curr->children.empty()) {
+      while (!curr->children.empty() && !curr->isTerminal) {
         curr = select(curr);
-        if (!tempBoard.makeMove(curr->move)) {
-          playoutValid = false;
-          break;
-        }
+        if (!tempBoard.makeMove(curr->move)) break;
         path.push_back(curr);
       }
 
-      if (!playoutValid) {
-        continue;
-      }
+      float value = expandAndEvaluate(curr, tempBoard);
 
-      expandAndEvaluate(curr, tempBoard, path);
+      for (auto it = path.rbegin(); it != path.rend(); ++it) {
+        (*it)->visitCount++;
+        (*it)->valueSum += value;
+        value = -value;
+      }
     }
 
     std::vector<float> distribution(4352, 0.0f);
-    float totalVisits = 0;
-
+    float totalVisits = 0.0f;
     for (const auto& [key, child] : root->children) {
       totalVisits += child->visitCount;
     }
 
-    for (const auto& [key, child] : root->children) {
-      int idx = moveToIndex(child->move);
-      float prob = (totalVisits > 0) ? (child->visitCount / totalVisits) : 0.0f;
-      distribution[idx] = prob;
+    if (totalVisits > 0.0f) {
+      for (const auto& [key, child] : root->children) {
+        int idx = moveToIndex(child->move);
+        if (idx >= 0 && idx < 4352) distribution[idx] = static_cast<float>(child->visitCount) / totalVisits;
+      }
     }
 
     game::Move selectedMove = selectMoveProportionally(root.get());
 
     return {selectedMove, distribution};
-  }
-
-  MCTSNode* Searcher::select(MCTSNode* node) {
-    if (node->isTerminal) return nullptr;
-    float bestScore = -std::numeric_limits<float>::infinity();
-    MCTSNode* bestChild = nullptr;
-
-    float totalVisits = 0;
-    for (const auto& [key, child] : node->children)
-      totalVisits += child->visitCount;
-
-    float fpuValue = node->getQ() - fpuReduction;
-
-    for (const auto& [key, child] : node->children) {
-      float Q = (child->visitCount > 0) ? child->getQ() : fpuValue;
-      float U = cPuct * child->prior * std::sqrt(totalVisits + 1.0f) / (1 + child->visitCount);
-
-      float score = Q + U;
-      if (score > bestScore) {
-        bestScore = score;
-        bestChild = child.get();
-      }
-    }
-
-    return bestChild;
-  }
-
-  void Searcher::backpropagate(const std::vector<MCTSNode*>& path, float value) {
-    float v = value;
-    for (auto it = path.rbegin(); it != path.rend(); ++it) {
-      (*it)->visitCount++;
-      (*it)->valueSum += v;
-      v = -v;
-    }
-  }
-
-  void Searcher::expandAndEvaluate(MCTSNode* node, game::Board& board, std::vector<MCTSNode*> path) {
-    if (Syzygy::canProbe(board)) {
-      unsigned wdl = Syzygy::probeWdl(board);
-      if (wdl != kTbResultFailed) {
-        float value = wdlToValue(wdl);
-
-        backpropagate(path, value);
-
-        node->isTerminal = true;
-        node->terminalValue = value;
-        return;
-      }
-    }
-
-    auto legalMoves = MoveGen::generateMoves(board);
-    MoveGen::filterLegalMoves(board, legalMoves);
-
-    if (legalMoves.empty()) {
-      float result = 0.0f;
-      if (board.isCheck(board.getSideToMove())) {
-        result = -1.0f;
-      }
-
-      if (result == 0.0f) {
-        result = drawPenalty;
-      }
-
-      backpropagate(path, result);
-      return;
-    }
-
-    if (board.isDraw()) {
-      backpropagate(path, drawPenalty);
-      return;
-    }
-
-    uint64_t boardKey = board.getZobristKey();
-    
-    std::vector<float> policyData;
-    float value;
-
-    auto ttIt = tt.find(boardKey);
-    if (ttIt != tt.end()) {
-      const Evaluation& eval = ttIt->second;
-      policyData = eval.policy;
-      value = eval.value;
-    } else {
-      std::vector<float> tensorData = board.getFullStateTensor();
-      torch::Tensor input = torch::from_blob(tensorData.data(), {1, 13, 8, 8}).to(device);
-
-      std::vector<torch::jit::IValue> inputs;
-      inputs.push_back(input);
-
-      auto outputs = model.forward(inputs).toTuple();
-      torch::Tensor policyTensor = outputs->elements()[0].toTensor().to(torch::kCPU);
-      torch::Tensor valueTensor = outputs->elements()[1].toTensor().to(torch::kCPU);
-
-      value = valueTensor.item<float>();
-      
-      policyData.assign(policyTensor.data_ptr<float>(), policyTensor.data_ptr<float>() + policyTensor.numel());
-
-      tt[boardKey] = { policyData, value };
-    }
-
-    float probSum = 0.0f;
-    for (const auto& m : legalMoves) {
-      int idx = moveToIndex(m);
-      float rawProb = 1.0f;
-      if (idx >= 0 && static_cast<size_t>(idx) < policyData.size()) {
-        float logProb = policyData[idx];
-        rawProb = std::exp(logProb);
-      }
-      float flattenedProb = std::pow(rawProb, 1.0f / policyTemp);
-      node->children[m.getRaw()] = std::make_unique<MCTSNode>(m, node, flattenedProb);
-      probSum += flattenedProb;
-    }
-
-    if (probSum > 0) {
-      for (auto& [key, child] : node->children) {
-        child->prior /= probSum;
-      }
-    }
-
-    backpropagate(path, value);
   }
 }

@@ -38,22 +38,21 @@ namespace nyx::engine {
       game::Move findBestMove(game::Board& board, int simulations);
       game::Move selectMoveProportionally(MCTSNode* root);
       std::pair<game::Move, std::vector<float>> getBestMoveAndDistribution(game::Board& board, int simulations);
-      void clearCache() { tt.clear(); }
       static int moveToIndex(const game::Move& m);
+      void clearCache() { tt.clear(); }
       void setCPuct(float c) { cPuct = c; }
       void setFpuReduction(float r) { fpuReduction = r; }
       void setDrawPenalty(float p) { drawPenalty = p; }
     private:
       MCTSNode* select(MCTSNode* node);
-      void expandAndEvaluate(MCTSNode* node, game::Board& board, std::vector<MCTSNode*> path);
-      void backpropagate(const std::vector<MCTSNode*>& path, float value);
+      float expandAndEvaluate(MCTSNode* node, game::Board& board);
 
       torch::jit::script::Module model;
       torch::Device device;
       std::unordered_map<uint64_t, Evaluation> tt;
       float cPuct = 1.8f;
-      float fpuReduction = 0.15f;
-      float drawPenalty = -0.1f;
-      float policyTemp = 1.2f;
+      float fpuReduction = 0.25f;
+      float drawPenalty = -0.05f;
+      float policyTemp = 1.0f;
   };
 }

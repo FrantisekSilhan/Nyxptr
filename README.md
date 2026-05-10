@@ -11,42 +11,42 @@ Nyxptr is a C++20 chess engine built around a Torch-backed searcher, UCI support
 - Lichess puzzle conversion helpers
 - Syzygy probing for tablebase positions
 
+## 📦 Releases
+
+You can find pre-built binaries on the [Releases](https://github.com/FrantisekSilhan/Nyxptr/releases) page.
+
+- **Windows (CPU):** The standard release (`Nyxptr-v0.0.4-windows-cpu.zip`) includes everything needed to run on Windows using the CPU version of libtorch.
+- **Other Platforms/GPU:** Currently, there are no pre-built binaries for Linux or GPU-accelerated (CUDA/ROCm) versions. If you wish to use GPU acceleration or run on Linux, please follow the **Build** instructions below.
+
 ## 🚀 Quick Start
 
-1. Install CMake 3.19+, a C++20 compiler, and Torch / libtorch.
-2. On Windows, put `libtorch` in the repository root. On Linux, install libtorch and update the CMake preset to point to its path (`Torch_DIR` in `CMakePresets.json`).
-3. Configure and build with CMake presets.
-4. Run the engine binary directly or through `run.bat` on Windows.
-
-## 🗂️ Repository Layout
-
-- `src/` - application entry point and engine/game implementation files
-- `include/` - public headers for the engine and game modules
-- `ext/Fathom/` - bundled Syzygy probing sources
-- `run.bat` - Windows helper to launch the Release build
-- `CMakeLists.txt` and `CMakePresets.json` - build configuration
+1. Download a release or build from source.
+2. Model File: Ensure you have the model file at `model/nyxptr_v4.pt`. (This is already included in the Windows release ZIP).
+3. Run the engine binary directly or through `run.bat` on Windows.
+4. For GUI use (e.g., [Nibbler](https://github.com/rooklift/nibbler)), point the GUI to the executable.
 
 ## ⚙️ Requirements
 
-- CMake 3.19 or newer
-- A C++20 compiler
-- Torch / libtorch
-- On Windows, place `libtorch` in the repository root so CMake can find it
-- A trained model file (`model/nyxptr_v3_epoch3.pt` by default) — required for the searcher to run
-- Optional: a `tablebases/` directory for Syzygy support
+- **Model File:** A trained TorchScript model (`model/nyxptr_v4.pt`) is required. You can download the latest version from the [Releases](https://github.com/FrantisekSilhan/Nyxptr/releases) page.
+- **Tablebases:** (Optional) Syzygy tablebases in a `tablebases/` directory.
+- **Build Dependencies:**
+  - CMake 3.19+
+  - C++20 compatible compiler (MSVC 2022, GCC 11+, or Clang 12+)
+  - `libtorch` (Match the version to your hardware: CPU, CUDA, or ROCm)
 
-## 🛠️ Build
+## 🛠️ Build from Source
 
 ### 🪟 Windows
 
-From the repository root:
+1. Download the `libtorch` c++ zip from the [PyTorch website](https://pytorch.org/get-started/locally/).
+2. Extract it into the repository root so that the `libtorch` folder is visible to CMake.
+3. Run
+  ```powershell
+  cmake --preset vs2022-x64
+  cmake --build --preset vs2022-x64-release
+  ```
 
-```powershell
-cmake --preset vs2022-x64
-cmake --build --preset vs2022-x64-release
-```
-
-The resulting executable is expected at `out/build/vs2022-x64/Release/Nyxptr.exe`.
+The executable will be located at `out/build/vs2022-x64/Release/Nyxptr.exe`.
 
 ### 🐧 Linux
 
@@ -57,46 +57,36 @@ cmake --preset linux-rocm
 cmake --build --preset linux-release
 ```
 
-## ▶️ Run
+Update `CMakePresets.json` or pass `-DTorch_DIR=...` if your libtorch is installed elsewhere.
 
-By default, Nyxptr starts in UCI mode and waits for stdin commands such as `uci`, `isready`, `position`, `go`, and `quit`.
+## ▶️ Run & Command Line Modes
 
-```bash
-out/build/vs2022-x64/Release/Nyxptr.exe
-```
+By default, Nyxptr starts in **UCI mode**. It also supports specific utility tasks:
 
-On Windows, the provided helper launches the Release binary:
+- `--uci`: Start the UCI loop explicitly.
+- `--selfplay <games> <simsPerMove> [outputFile]`: Generate training data.
+- `--convert <pgnDir> <binDir>`: Convert PGN files to binary training format.
+- `--convert-puzzles <csvPath> <binPathBase>`: Convert Lichess puzzle CSVs.
 
-```bat
-run.bat
-```
-
-If you want the engine in a GUI, point the GUI at the built executable and use standard UCI mode. Example: [Nibbler](https://github.com/rooklift/nibbler).
-
-## ⌨️ Command Line Modes
-
-Nyxptr supports a few utility modes from `src/main.cpp`:
-
-- `--uci` - start the UCI loop explicitly
-- `--selfplay <games> <simsPerMove> [outputFile]` - generate self-play data
-- `--convert <pgnDir> <binDir>` - convert PGN files in a directory to binary files
-- `--convert-puzzles <csvPath> <binPathBase>` - convert Lichess puzzle CSV data
-
-Examples:
-
+Example:
 ```bash
 Nyxptr.exe --selfplay 50 800 selfplay_data.bin
-Nyxptr.exe --convert data/pgn data/bin
-Nyxptr.exe --convert-puzzles puzzles.csv puzzles
 ```
+
+## 🗂️ Repository Layout
+
+- `src/` & `include/` - Core engine logic and entry points.
+- `ext/Fathom/` - Syzygy probing source (MIT License).
+- `run.bat` - Windows helper to launch the Release build
+- `CMakeLists.txt` and `CMakePresets.json` - build configuration
+- `out/` - Default build output directory.
 
 ## 📝 Notes
 
-- A trained model is **required** to run the engine. No public model is currently available, but Nyxptr V4 will be released on [GitHub Releases](https://github.com/FrantisekSilhan/Nyxptr/releases) once trained.
-- The default model path is hard-coded in `src/main.cpp` as `model/nyxptr_v3_epoch3.pt`; update it if you store the model elsewhere.
-- If Syzygy tablebases cannot be initialized, the engine prints a warning and continues.
-- Self-play mode tunes the search parameters for data generation instead of regular play.
+- **Hardware Acceleration:** While the Windows release uses the CPU, Nyxptr supports GPU acceleration. For maximum search speed, it is recommended to compile the project yourself against the **CUDA** (NVIDIA) or **ROCm** (AMD) versions of libtorch.
 
-## 📄 License
+## 📄 License & Legal
 
-Nyxptr is distributed under the GNU General Public License v3.0 or later. See [LICENSE](LICENSE).
+- **Nyxptr Engine:** Distributed under the [GNU General Public License v3.0](LICENSE).
+- **Third-Party Code:** This repository bundles [Fathom](https://github.com/jdart1/Fathom) for Syzygy probing (MIT License). See `ext/Fathom/` for details and third-party notices.
+- **Binary Distributions:** Pre-built releases contain redistributable binaries from the PyTorch project and Intel. Full attribution and license texts for these dependencies are included in the `NOTICE` file within the release ZIP.

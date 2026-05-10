@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.19 FATAL_ERROR)
-project(Nyxptr VERSION 0.0.1 LANGUAGES C CXX)
+project(Nyxptr VERSION 0.0.4 LANGUAGES C CXX)
 
 if (WIN32)
   list(APPEND CMAKE_PREFIX_PATH "${CMAKE_CURRENT_SOURCE_DIR}/libtorch")

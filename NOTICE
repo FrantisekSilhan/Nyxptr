@@ -1,0 +1,11 @@
+Nyxptr Third-Party Notices
+
+This repository contains source code from the following projects:
+
+1. Fathom (Syzygy tablebase probing)
+   Source: https://github.com/jdart1/Fathom
+   License: MIT (See ext/Fathom/LICENSE for full text)
+
+2. Compatibility Shim (stdatomic.h)
+   License: Public Domain / Unlicense
+   Note: Located in ext/Fathom/ to facilitate building with specific compilers.

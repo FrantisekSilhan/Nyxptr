@@ -52,7 +52,7 @@ namespace nyx::engine {
       std::string cmd = tokens[0];
       
       if (cmd == "uci") {
-        std::cout << "id name Nyxptr v0.0.3" << std::endl;
+        std::cout << "id name Nyxptr v0.0.4" << std::endl;
         std::cout << "id author https://github.com/FrantisekSilhan/Nyxptr/blob/main/AUTHORS" << std::endl;
         std::cout << "uciok" << std::endl;
       } else if (cmd == "isready") {
@@ -62,10 +62,42 @@ namespace nyx::engine {
         searcher.clearCache();
       } else if (cmd == "position") {
         searcher.clearCache();
-        if (tokens.size() > 1 && tokens[1] == "startpos") {
+        if (tokens.size() <= 1) continue;
+        std::string option = tokens[1];
+        if (option == "startpos") {
           board = Board();
           size_t mIdx = 0;
           for (size_t i = 2; i < tokens.size(); ++i) {
+            if (tokens[i] == "moves") {
+              mIdx = i + 1;
+              break;
+            }
+          }
+          for (size_t i = mIdx; i < tokens.size(); ++i) {
+            std::vector<Move> moves = MoveGen::generateMoves(board);
+            MoveGen::filterLegalMoves(board, moves);
+            bool moveApplied = false;
+            for (const Move& m : moves) {
+              if (m.toAlgebraic() == tokens[i]) {
+                if (board.makeMove(m)) {
+                  moveApplied = true;
+                }
+                break;
+              }
+            }
+
+            if (!moveApplied) {
+              std::cout << "info string invalid position move: " << tokens[i] << std::endl;
+              break;
+            }
+          }
+        } else if (option == "fen") {
+          board = Board();
+          if (tokens.size() <= 7) continue;
+          std::string fen = tokens[2] + " " + tokens[3] + " " + tokens[4] + " " + tokens[5] + " " + tokens[6] + " " + tokens[7];
+          board.loadFEN(fen);
+          size_t mIdx = 0;
+          for (size_t i = 8; i < tokens.size(); ++i) {
             if (tokens[i] == "moves") {
               mIdx = i + 1;
               break;

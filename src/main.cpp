@@ -34,11 +34,9 @@ std::atomic<bool> running(true);
 int main(int argc, char* argv[]) {
   nyx::game::lookups::initSliderTables();
   nyx::game::Board::initZobrist();
-  if (!Syzygy::init("tablebases")) {
-    std::cerr << "Warning: Could not initialize Syzygy tablebases." << std::endl;
-  }
+  Syzygy::init("tablebases");
 
-  std::string MODEL_PATH = "model/nyxptr_v3_epoch3.pt";
+  std::string MODEL_PATH = "model/nyxptr_v4.pt";
   Searcher searcher(MODEL_PATH);
   int simulations = 1600;
 
