@@ -26,12 +26,17 @@
 #include <string>
 #include <atomic>
 #include <filesystem>
+#include <ATen/Parallel.h>
+#include <ATen/Context.h>
 
 using namespace nyx::engine;
 
 std::atomic<bool> running(true);
 
 int main(int argc, char* argv[]) {
+  at::set_num_threads(1);
+  at::set_num_interop_threads(1);
+  at::globalContext().setFlushDenormal(true);
   nyx::game::lookups::initSliderTables();
   nyx::game::Board::initZobrist();
   Syzygy::init("tablebases");
