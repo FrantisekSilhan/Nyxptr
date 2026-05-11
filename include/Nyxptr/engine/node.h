@@ -31,6 +31,7 @@ namespace nyx::engine {
     int visitCount = 0;
     float valueSum = 0.0f;
     float prior = 0.0f;
+    int virtualLoss = 0;
 
     bool isTerminal = false;
     float terminalValue = 0.0f;
@@ -38,7 +39,9 @@ namespace nyx::engine {
     MCTSNode(game::Move m, MCTSNode* p, float pr) : move(m), parent(p), prior(pr) {}
 
     float getQ() const {
-      return (visitCount > 0) ? (valueSum / visitCount) : 0.0f;
+      int effectiveVisits = visitCount + virtualLoss;
+      if (effectiveVisits == 0) return 0.0f;
+      return (valueSum - virtualLoss) / effectiveVisits;
     }
   };
 }

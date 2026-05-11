@@ -74,6 +74,7 @@ namespace nyx::game {
       }
       
       std::vector<float> getFullStateTensor() const;
+      void fillTensorData(float* data) const;
       
       bool makeMove(Move m);
       void undoMove();

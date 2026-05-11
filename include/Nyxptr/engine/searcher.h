@@ -43,10 +43,15 @@ namespace nyx::engine {
       void setCPuct(float c) { cPuct = c; }
       void setFpuReduction(float r) { fpuReduction = r; }
       void setDrawPenalty(float p) { drawPenalty = p; }
+      void setBatchSize(int s) { batchSize = s; }
     private:
       MCTSNode* select(MCTSNode* node);
       float expandAndEvaluate(MCTSNode* node, game::Board& board);
+      std::vector<float> expandAndEvaluateBatch(std::vector<MCTSNode*>& nodes, std::vector<game::Board>& boards);
+      std::optional<float> expandSingleNode(MCTSNode* node, game::Board& board);
 
+      std::vector<float> bigTensorData;
+      torch::TensorOptions tensorOptions;
       torch::jit::script::Module model;
       torch::Device device;
       std::unordered_map<uint64_t, Evaluation> tt;
@@ -54,5 +59,7 @@ namespace nyx::engine {
       float fpuReduction = 0.25f;
       float drawPenalty = -0.05f;
       float policyTemp = 1.0f;
+
+      int batchSize = 16;
   };
 }

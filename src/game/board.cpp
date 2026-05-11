@@ -297,6 +297,21 @@ namespace nyx::game {
     return tensor;
   }
 
+  void Board::fillTensorData(float* data) const {
+    for (int p = 0; p < 6; ++p) {
+      for (int c = 0; c < 2; ++c) {
+        uint64_t bb = bitboards[c][p];
+        int planeOffset = (c * 6 + p) * 64;
+        while (bb) {
+          int sq = bitboard::popLSB(bb);
+          data[planeOffset + sq] = 1.0f;
+        }
+      }
+    }
+
+    std::fill(data + 12 * 64, data + 13 * 64, (sideToMove == Color::White ? 1.0f : 0.0f));
+  }
+
   void Board::addPiece(Square sq, Piece p, Color c) {
     if (sq == Square::None || p == Piece::None || c == Color::None) return;
 

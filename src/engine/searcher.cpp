@@ -57,10 +57,12 @@ namespace nyx::engine {
     }
   }
 
-  Searcher::Searcher(const std::string& modelPath) : device(torch::cuda::is_available() ? torch::kCUDA : torch::kCPU) {
+  Searcher::Searcher(const std::string& modelPath) : device(torch::cuda::is_available() ? torch::kCUDA : torch::kCPU), tensorOptions(torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU)) {
     model = torch::jit::load(modelPath);
     model.to(device);
     model.eval();
+
+    bigTensorData.resize(batchSize * 13 * 8 * 8, 0.0f);
   }
 
   int Searcher::moveToIndex(const game::Move& m) {
@@ -101,28 +103,48 @@ namespace nyx::engine {
     int maxDepth = 0;
     auto startTime = std::chrono::high_resolution_clock::now();
 
-    for (int i = 0; i < simulations; ++i) {
-      game::Board tempBoard = board;
-      std::vector<MCTSNode*> path;
-      MCTSNode* curr = root.get();
-      path.push_back(curr);
+    for (int i = 0; i < simulations; i += batchSize) {
+      int currentBatchSize = std::min(batchSize, simulations - i);
+      std::vector<MCTSNode*> nodesToProcess;
+      nodesToProcess.reserve(currentBatchSize);
+      std::vector<game::Board> boardsToProcess;
+      boardsToProcess.reserve(currentBatchSize);
+      std::vector<std::vector<MCTSNode*>> paths(currentBatchSize);
 
-      while (!curr->children.empty() && !curr->isTerminal) {
-        curr = select(curr);
-        if (!tempBoard.makeMove(curr->move)) break;
-        path.push_back(curr);
+      for (int b = 0; b < currentBatchSize; ++b) {
+        game::Board tempBoard = board;
+        MCTSNode* curr = root.get();
+        paths[b].push_back(curr);
+
+        while (!curr->children.empty() && !curr->isTerminal) {
+          curr = select(curr);
+          if (!tempBoard.makeMove(curr->move)) break;
+          paths[b].push_back(curr);
+        }
+
+        if (to_i(paths[b].size()) > maxDepth) maxDepth = to_i(paths[b].size());
+
+        curr->virtualLoss++;
+
+        nodesToProcess.push_back(curr);
+        boardsToProcess.push_back(tempBoard);
       }
 
-      if (static_cast<int>(path.size()) > maxDepth) maxDepth = path.size();
-      float value = expandAndEvaluate(curr, tempBoard);
+      std::vector<float> values = expandAndEvaluateBatch(nodesToProcess, boardsToProcess);
 
-      for (auto it = path.rbegin(); it != path.rend(); ++it) {
-        (*it)->visitCount++;
-        (*it)->valueSum += value;
-        value = -value;
+      for (int b = 0; b < currentBatchSize; ++b) {
+        MCTSNode* node = nodesToProcess[b];
+        node->virtualLoss--;
+
+        float value = values[b];
+        for (auto it = paths[b].rbegin(); it != paths[b].rend(); ++it) {
+          (*it)->visitCount++;
+          (*it)->valueSum += value;
+          value = -value;
+        }
       }
 
-      if (i > 0 && i % 500 == 0) {
+      if (i > 0 && i % 500 < batchSize) {
         auto now = std::chrono::high_resolution_clock::now();
         auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - startTime).count();
         float nps = (ms > 0) ? (i * 1000.0f / ms) : 0.0f;
@@ -211,8 +233,9 @@ namespace nyx::engine {
       policyData = eval.policy;
       value = eval.value;
     } else {
-      std::vector<float> tensorData = board.getFullStateTensor();
-      torch::Tensor input = torch::from_blob(tensorData.data(), {1, 13, 8, 8}).to(device);
+      std::vector<float> tensorData(13 * 8 * 8);
+      board.fillTensorData(tensorData.data());
+      torch::Tensor input = torch::from_blob(tensorData.data(), {1, 13, 8, 8}, tensorOptions).to(device);
       auto outputs = model.forward({input}).toTuple();
 
       torch::Tensor pT = outputs->elements()[0].toTensor().to(torch::kCPU);
@@ -238,6 +261,115 @@ namespace nyx::engine {
     }
 
     return value;
+  }
+
+  std::optional<float> Searcher::expandSingleNode(MCTSNode* node, game::Board& board) {
+    if (node->isTerminal) return node->terminalValue;
+
+    uint64_t boardKey = board.getZobristKey();
+    auto ttIt = tt.find(boardKey);
+    if (!node->children.empty()) {
+      if (ttIt != tt.end()) return ttIt->second.value;
+      return std::nullopt;
+    }
+
+    // Probe Syzygy tablebase
+    if (Syzygy::canProbe(board)) {
+      unsigned wdl = Syzygy::probeWdl(board);
+      if (wdl != kTbResultFailed) {
+        node->isTerminal = true;
+        node->terminalValue = wdlToValue(wdl);
+        return node->terminalValue;
+      }
+    }
+
+    auto legalMoves = MoveGen::generateMoves(board);
+    MoveGen::filterLegalMoves(board, legalMoves);
+
+    if (legalMoves.empty()) {
+      node->isTerminal = true;
+      node->terminalValue = board.isCheck(board.getSideToMove()) ? -1.0f : drawPenalty;
+      return node->terminalValue;
+    }
+    if (board.isDraw()) {
+      node->isTerminal = true;
+      node->terminalValue = drawPenalty;
+      return node->terminalValue;
+    }
+
+    if (ttIt == tt.end()) return std::nullopt;
+    const Evaluation& eval = ttIt->second;
+
+    float probSum = 0.0f;
+    for (const auto& m : legalMoves) {
+      int idx = moveToIndex(m);
+      float rawProb = std::exp(eval.policy[idx]);
+      float flattenedProb = std::pow(rawProb, 1.0f / policyTemp);
+      node->children[m.getRaw()] = std::make_unique<MCTSNode>(m, node, flattenedProb);
+      probSum += flattenedProb;
+    }
+
+    if (probSum > 0.0f) {
+      for (auto& [key, child] : node->children) {
+        child->prior /= probSum;
+      }
+    }
+
+    return eval.value;
+  }
+
+  std::vector<float> Searcher::expandAndEvaluateBatch(std::vector<MCTSNode*>& nodes, std::vector<game::Board>& boards) {
+    int n = nodes.size();
+    std::vector<float> values(n, 0.0f);
+    std::vector<int> inferenceIndicies;
+    inferenceIndicies.reserve(n);
+
+    // Identify which nodes need inference
+    for (int i = 0; i < n; ++i) {
+      std::optional<float> res = expandSingleNode(nodes[i], boards[i]);
+      if (res.has_value()) {
+        values[i] = res.value();
+        continue;
+      }
+      inferenceIndicies.push_back(i);
+    }
+
+    // Run inference for nodes that are not in the transposition table
+    if (!inferenceIndicies.empty()) {
+      int numToInfer = inferenceIndicies.size();
+      std::fill(bigTensorData.begin(), bigTensorData.begin() + (numToInfer * 13 * 8 * 8), 0.0f);
+      for (int i = 0; i < numToInfer; ++i) {
+        int idx = inferenceIndicies[i];
+        boards[idx].fillTensorData(bigTensorData.data() + i * 13 * 8 * 8);
+      }
+      torch::Tensor input = torch::from_blob(bigTensorData.data(), {numToInfer, 13, 8, 8}, tensorOptions).to(device);
+      auto outputs = model.forward({input}).toTuple();
+      torch::Tensor pBatch = outputs->elements()[0].toTensor().to(torch::kCPU);
+      torch::Tensor vBatch = outputs->elements()[1].toTensor().to(torch::kCPU);
+  
+      for (int i = 0; i < numToInfer; ++i) {
+        uint64_t key = boards[inferenceIndicies[i]].getZobristKey();
+        float value = vBatch[i].item<float>();
+        torch::Tensor pData = pBatch[i];
+        std::vector<float> policyData;
+        policyData.reserve(pData.numel());
+        policyData.assign(pData.data_ptr<float>(), pData.data_ptr<float>() + pData.numel());
+        tt[key] = { policyData, value };
+      }
+    }
+
+    // Expand nodes with new evaluations
+    for (int idx : inferenceIndicies) {
+      std::optional<float> res = expandSingleNode(nodes[idx], boards[idx]);
+      if (!res.has_value()) { // TODO: Handle batch failure
+        assert(res.has_value() && "Node should have been expanded in batch");
+        values[idx] = 0.0f;
+        continue;
+      }
+      values[idx] = res.value();
+    }
+
+    return values;
   }
 
   game::Move Searcher::selectMoveProportionally(MCTSNode* root) {
