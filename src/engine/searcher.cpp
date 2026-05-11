@@ -213,12 +213,12 @@ namespace nyx::engine {
     // Detect checkmate / draw before expansion
     if (legalMoves.empty()) {
       node->isTerminal = true;
-      node->terminalValue = board.isCheck(board.getSideToMove()) ? -1.0f : drawPenalty;
+      node->terminalValue = board.isCheck(board.getSideToMove()) ? 1.0f : -drawPenalty;
       return node->terminalValue;
     }
     if (board.isDraw()) {
       node->isTerminal = true;
-      node->terminalValue = drawPenalty;
+      node->terminalValue = -drawPenalty;
       return node->terminalValue;
     }
 
@@ -288,12 +288,12 @@ namespace nyx::engine {
 
     if (legalMoves.empty()) {
       node->isTerminal = true;
-      node->terminalValue = board.isCheck(board.getSideToMove()) ? -1.0f : drawPenalty;
+      node->terminalValue = board.isCheck(board.getSideToMove()) ? 1.0f : -drawPenalty;
       return node->terminalValue;
     }
     if (board.isDraw()) {
       node->isTerminal = true;
-      node->terminalValue = drawPenalty;
+      node->terminalValue = -drawPenalty;
       return node->terminalValue;
     }
 
