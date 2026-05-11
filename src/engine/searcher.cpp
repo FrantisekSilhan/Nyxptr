@@ -157,7 +157,7 @@ namespace nyx::engine {
         std::cout << "info depth " << maxDepth
                   << " nodes " << i
                   << " nps " << static_cast<int>(nps)
-                  << " score cp " << static_cast<int>(root->getQ() * 1000.0f)
+                  << " score cp " << static_cast<int>(bestSoFar->second->getQ() * 1000.0f)
                   << " pv " << bestSoFar->second->move.toAlgebraic() << std::endl;
       }
     }
