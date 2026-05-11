@@ -47,10 +47,6 @@ namespace nyx::engine {
       );
     }
 
-    bool isCastleMove(const game::Square to) {
-      return to == game::Square::G1 || to == game::Square::C1 || to == game::Square::G8 || to == game::Square::C8;
-    }
-
     game::Move convertTbMove(const game::Board& board, TbMove tbMove) {
       auto from = static_cast<game::Square>(TB_MOVE_FROM(tbMove));
       auto to = static_cast<game::Square>(TB_MOVE_TO(tbMove));

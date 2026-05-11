@@ -57,7 +57,7 @@ namespace nyx::engine {
     }
   }
 
-  Searcher::Searcher(const std::string& modelPath) : device(torch::cuda::is_available() ? torch::kCUDA : torch::kCPU), tensorOptions(torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU)) {
+  Searcher::Searcher(const std::string& modelPath) : tensorOptions(torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU)), device(torch::cuda::is_available() ? torch::kCUDA : torch::kCPU) {
     model = torch::jit::load(modelPath);
     model.to(device);
     model.eval();
