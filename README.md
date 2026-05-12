@@ -1,5 +1,9 @@
 # Nyxptr ♟️
 
+[![Release](https://img.shields.io/github/v/release/FrantisekSilhan/Nyxptr.svg)](https://github.com/FrantisekSilhan/Nyxptr/releases) [![License](https://img.shields.io/github/license/FrantisekSilhan/Nyxptr.svg)](https://github.com/FrantisekSilhan/Nyxptr/blob/master/LICENSE) [![Downloads](https://img.shields.io/github/downloads/FrantisekSilhan/Nyxptr/total.svg)](https://github.com/FrantisekSilhan/Nyxptr/releases) [![Stars](https://img.shields.io/github/stars/FrantisekSilhan/Nyxptr?style=social)](https://github.com/FrantisekSilhan/Nyxptr)
+
+[![C++20](https://img.shields.io/badge/C%2B%2B-20-blue.svg)](https://en.cppreference.com/w/cpp/20) [![CMake](https://img.shields.io/badge/CMake-3.19%2B-blue.svg)](CMakeLists.txt) [![Platforms](https://img.shields.io/badge/Platforms-CPU%20%7C%20CUDA%20%7C%20ROCm-yellow.svg)](#build-from-source) [![Model](https://img.shields.io/badge/Model-v4-brightgreen.svg)](https://github.com/FrantisekSilhan/Nyxptr/releases/latest/download/Nyxptr-Model-v4.zip)
+
 Nyxptr is a C++20 chess engine built around a Torch-backed searcher, UCI support, self-play generation, PGN and puzzle conversion tools, and Syzygy tablebase probing.
 
 ## ✨ Highlights
