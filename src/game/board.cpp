@@ -277,7 +277,7 @@ namespace nyx::game {
   }
 
   std::vector<float> Board::getFullStateTensor() const {
-    std::vector<float> tensor(832, 0.0f);
+    std::vector<float> tensor(768, 0.0f);
 
     for (int p = 0; p < 6; ++p) {
       for (int c = 0; c < 2; ++c) {
@@ -288,10 +288,6 @@ namespace nyx::game {
           tensor[planeOffset + sq] = 1.0f;
         }
       }
-    }
-
-    for (int i = 0; i < 64; ++i) {
-      tensor[12 * 64 + i] = (sideToMove == Color::White) ? 1.0f : 0.0f;
     }
 
     return tensor;
@@ -308,8 +304,6 @@ namespace nyx::game {
         }
       }
     }
-
-    std::fill(data + 12 * 64, data + 13 * 64, (sideToMove == Color::White ? 1.0f : 0.0f));
   }
 
   void Board::addPiece(Square sq, Piece p, Color c) {
