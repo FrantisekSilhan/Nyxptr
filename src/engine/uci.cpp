@@ -52,7 +52,7 @@ namespace nyx::engine {
       std::string cmd = tokens[0];
       
       if (cmd == "uci") {
-        std::cout << "id name Nyxptr v0.0.6" << std::endl;
+        std::cout << "id name Nyxptr v0.1.0" << std::endl;
         std::cout << "id author https://github.com/FrantisekSilhan/Nyxptr/blob/main/AUTHORS" << std::endl;
         std::cout << "uciok" << std::endl;
       } else if (cmd == "isready") {
