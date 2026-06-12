@@ -17,7 +17,6 @@
 */
 
 #include "Nyxptr/engine/uci.h"
-#include "Nyxptr/engine/selfplay.h"
 #include "Nyxptr/engine/searcher.h"
 #include "Nyxptr/game/lookups.h"
 #include "Nyxptr/game/board.h"
@@ -73,15 +72,10 @@ int main(int argc, char* argv[]) {
         }
       }
        return 0;
-    } else if (mode == "--selfplay") {
-      int games = (argc > 2) ? std::stoi(argv[2]) : 50;
-      int sims = (argc > 3) ? std::stoi(argv[3]) : 800;
-      std::string outputFile = (argc > 4) ? argv[4] : "selfplay_data.bin";
-      SelfPlay::runSelfPlay(searcher, games, sims, outputFile);
     } else if (mode == "--uci") {
       UCI::loop(searcher, simulations);
     } else {
-      std::cerr << "Args: " << argv[0] << " [--selfplay numGames simsPerMove] | [--uci] | [--convert pgnDir binDir] | [--convert-puzzles csv binPathBase]" << std::endl;
+      std::cerr << "Args: " << argv[0] << " [--uci] | [--convert pgnDir binDir] | [--convert-puzzles csv binPathBase]" << std::endl;
       return 1;
     }
   } else {

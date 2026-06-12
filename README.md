@@ -69,14 +69,8 @@ Update `CMakePresets.json` or pass `-DTorch_DIR=...` if your libtorch is install
 By default, Nyxptr starts in **UCI mode**. It also supports specific utility tasks:
 
 - `--uci`: Start the UCI loop explicitly.
-- `--selfplay <games> <simsPerMove> [outputFile]`: Generate training data.
 - `--convert <pgnDir> <binDir>`: Convert PGN files to binary training format.
 - `--convert-puzzles <csvPath> <binPathBase>`: Convert Lichess puzzle CSVs.
-
-Example:
-```bash
-Nyxptr.exe --selfplay 50 800 selfplay_data.bin
-```
 
 ## 🗂️ Repository Layout
 

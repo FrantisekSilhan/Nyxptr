@@ -24,27 +24,6 @@
 #include "Nyxptr/game/move.h"
 
 namespace nyx::engine {
-  struct TrainingStep {
-    std::vector<float> stateTensor;
-    std::vector<float> policyTarget;
-  };
-
-  class DataRecorder {
-    public:
-      DataRecorder(const std::string& filename);
-      ~DataRecorder();
-
-      void recordStep(const game::Board& board, const std::vector<float>& visitCounts);
-      void finishGame(float finalResult);
-
-    private:
-      std::string outputPath;
-      std::vector<TrainingStep> gameBuffer;
-      std::ofstream fileStream;
-
-      void writeToDisk(const TrainingStep& step, float result);
-  };
-
   class PRecorder {
     public:
       PRecorder(const std::string& filename);
@@ -56,7 +35,7 @@ namespace nyx::engine {
 
     private:
       struct PStep {
-        uint64_t planes[13];
+        uint64_t planes[12];
         uint16_t moveIndex;
       };
 

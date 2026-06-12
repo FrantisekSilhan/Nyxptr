@@ -46,15 +46,6 @@ namespace nyx::engine {
         default: return 0.0f;
       }
     }
-
-    void fillOneHotDistribution(std::vector<float>& dist, const game::Move& move) {
-      if (move.isNone()) return;
-
-      int index = Searcher::moveToIndex(move);
-      if (index >= 0 && index < to_i(dist.size())) {
-        dist[index] = 1.0f;
-      }
-    }
   }
 
   Searcher::Searcher(const std::string& modelPath) : tensorOptions(torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU)), device(torch::cuda::is_available() ? torch::kCUDA : torch::kCPU) {
@@ -62,12 +53,18 @@ namespace nyx::engine {
     model.to(device);
     model.eval();
 
-    bigTensorData.resize(batchSize * 13 * 8 * 8, 0.0f);
+    bigTensorData.resize(batchSize * 12 * 8 * 8, 0.0f);
   }
 
-  int Searcher::moveToIndex(const game::Move& m) {
+  int Searcher::moveToIndex(const game::Move& m, bool flip) {
     int from = to_i(m.getFrom());
     int to = to_i(m.getTo());
+
+    if (flip) {
+      from ^= 56;
+      to ^= 56;
+    }
+
     uint16_t flags = m.getFlags();
 
     if (!(flags & game::Move::Promotion)) {
@@ -233,9 +230,9 @@ namespace nyx::engine {
       policyData = eval.policy;
       value = eval.value;
     } else {
-      std::vector<float> tensorData(13 * 8 * 8);
+      std::vector<float> tensorData(12 * 8 * 8);
       board.fillTensorData(tensorData.data());
-      torch::Tensor input = torch::from_blob(tensorData.data(), {1, 13, 8, 8}, tensorOptions).to(device);
+      torch::Tensor input = torch::from_blob(tensorData.data(), {1, 12, 8, 8}, tensorOptions).to(device);
       auto outputs = model.forward({input}).toTuple();
 
       torch::Tensor pT = outputs->elements()[0].toTensor().to(torch::kCPU);
@@ -249,7 +246,7 @@ namespace nyx::engine {
     // Expansion
     float probSum = 0.0f;
     for (const auto& m : legalMoves) {
-      int idx = moveToIndex(m);
+      int idx = moveToIndex(m, board.getSideToMove() == game::Color::Black);
       float rawProb = std::exp(policyData[idx]);
       float flattenedProb = std::pow(rawProb, 1.0f / policyTemp);
       node->children[m.getRaw()] = std::make_unique<MCTSNode>(m, node, flattenedProb);
@@ -302,7 +299,7 @@ namespace nyx::engine {
 
     float probSum = 0.0f;
     for (const auto& m : legalMoves) {
-      int idx = moveToIndex(m);
+      int idx = moveToIndex(m, board.getSideToMove() == game::Color::Black);
       float rawProb = std::exp(eval.policy[idx]);
       float flattenedProb = std::pow(rawProb, 1.0f / policyTemp);
       node->children[m.getRaw()] = std::make_unique<MCTSNode>(m, node, flattenedProb);
@@ -337,12 +334,12 @@ namespace nyx::engine {
     // Run inference for nodes that are not in the transposition table
     if (!inferenceIndicies.empty()) {
       int numToInfer = inferenceIndicies.size();
-      std::fill(bigTensorData.begin(), bigTensorData.begin() + (numToInfer * 13 * 8 * 8), 0.0f);
+      std::fill(bigTensorData.begin(), bigTensorData.begin() + (numToInfer * 12 * 8 * 8), 0.0f);
       for (int i = 0; i < numToInfer; ++i) {
         int idx = inferenceIndicies[i];
-        boards[idx].fillTensorData(bigTensorData.data() + i * 13 * 8 * 8);
+        boards[idx].fillTensorData(bigTensorData.data() + i * 12 * 8 * 8);
       }
-      torch::Tensor input = torch::from_blob(bigTensorData.data(), {numToInfer, 13, 8, 8}, tensorOptions).to(device);
+      torch::Tensor input = torch::from_blob(bigTensorData.data(), {numToInfer, 12, 8, 8}, tensorOptions).to(device);
       auto outputs = model.forward({input}).toTuple();
       torch::Tensor pBatch = outputs->elements()[0].toTensor().to(torch::kCPU);
       torch::Tensor vBatch = outputs->elements()[1].toTensor().to(torch::kCPU);
@@ -370,97 +367,5 @@ namespace nyx::engine {
     }
 
     return values;
-  }
-
-  game::Move Searcher::selectMoveProportionally(MCTSNode* root) {
-    static std::mt19937 gen(std::random_device{}());
-
-    std::vector<float> visits;
-    std::vector<game::Move> moves;
-    float totalVisits = 0.0f;
-
-    for (const auto& [key, child] : root->children) {
-      visits.push_back(std::pow(static_cast<float>(child->visitCount), 1.0f / policyTemp));
-      moves.push_back(child->move);
-      totalVisits += visits.back();
-    }
-
-    if (totalVisits == 0.0f) return game::Move();
-
-    std::discrete_distribution<> dist(visits.begin(), visits.end());
-    return moves[dist(gen)];
-  }
-
-  std::pair<game::Move, std::vector<float>> Searcher::getBestMoveAndDistribution(game::Board& board, int simulations) {
-    if (Syzygy::canProbe(board)) {
-      game::Move tbMove = Syzygy::probeDtz(board);
-      std::vector<float> distribution(4352, 0.0f);
-      fillOneHotDistribution(distribution, tbMove);
-      return {tbMove, distribution};
-    }
-
-    auto root = std::make_unique<MCTSNode>(game::Move(), nullptr, 1.0f);
-    float rootEval = expandAndEvaluate(root.get(), board);
-    root->valueSum = rootEval;
-    root->visitCount = 1;
-
-    if (!root->children.empty()) {
-      constexpr float kEpsilon = 0.25f;
-      constexpr float kAlpha = 0.3f;
-
-      static std::mt19937 gen(std::random_device{}());
-      std::gamma_distribution<float> dist(kAlpha, 1.0f);
-
-      std::vector<float> noise(root->children.size());
-      float noiseSum = 0.0f;
-      for (float& n : noise) {
-        n = dist(gen);
-        noiseSum += n;
-      }
-
-      int i = 0;
-      for (auto& [key, child] : root->children) {
-        float n = noise[i++] / noiseSum;
-        child->prior = (1.0f - kEpsilon) * child->prior + kEpsilon * n;
-      }
-    }
-
-    for (int i = 0; i < simulations; ++i) {
-      game::Board tempBoard = board;
-      std::vector<MCTSNode*> path;
-      MCTSNode* curr = root.get();
-      path.push_back(curr);
-
-      while (!curr->children.empty() && !curr->isTerminal) {
-        curr = select(curr);
-        if (!tempBoard.makeMove(curr->move)) break;
-        path.push_back(curr);
-      }
-
-      float value = expandAndEvaluate(curr, tempBoard);
-
-      for (auto it = path.rbegin(); it != path.rend(); ++it) {
-        (*it)->visitCount++;
-        (*it)->valueSum += value;
-        value = -value;
-      }
-    }
-
-    std::vector<float> distribution(4352, 0.0f);
-    float totalVisits = 0.0f;
-    for (const auto& [key, child] : root->children) {
-      totalVisits += child->visitCount;
-    }
-
-    if (totalVisits > 0.0f) {
-      for (const auto& [key, child] : root->children) {
-        int idx = moveToIndex(child->move);
-        if (idx >= 0 && idx < 4352) distribution[idx] = static_cast<float>(child->visitCount) / totalVisits;
-      }
-    }
-
-    game::Move selectedMove = selectMoveProportionally(root.get());
-
-    return {selectedMove, distribution};
   }
 }

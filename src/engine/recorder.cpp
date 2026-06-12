@@ -21,46 +21,6 @@
 #include "Nyxptr/engine/searcher.h"
 
 namespace nyx::engine {
-  DataRecorder::DataRecorder(const std::string& filename) : outputPath(filename) {
-    fileStream.open(outputPath, std::ios::binary | std::ios::app);
-  }
-
-  DataRecorder::~DataRecorder() {
-    if (fileStream.is_open()) fileStream.close();
-  }
-
-  void DataRecorder::recordStep(const game::Board& board, const std::vector<float>& policyDistribution) {
-    TrainingStep step;
-    step.stateTensor = board.getFullStateTensor();
-    step.policyTarget = policyDistribution;
-    gameBuffer.push_back(step);
-  }
-
-  void DataRecorder::finishGame(float finalResult) {
-    if (!fileStream.is_open()) return;
-
-    float currentResult = finalResult;
-    for (auto it = gameBuffer.rbegin(); it != gameBuffer.rend(); ++it) {
-      writeToDisk(*it, currentResult);
-      currentResult = -currentResult;
-    }
-
-    gameBuffer.clear();
-    fileStream.flush();
-  }
-
-  void DataRecorder::writeToDisk(const TrainingStep& step, float result) {
-    for (int p = 0; p < 13; ++p) {
-      uint64_t packed = 0;
-      for (int sq = 0; sq < 64; ++sq) {
-        if (step.stateTensor[p * 64 + sq] > 0.5f) packed |= (1ULL << sq);
-      }
-      fileStream.write(reinterpret_cast<const char*>(&packed), sizeof(uint64_t));
-    }
-    fileStream.write(reinterpret_cast<const char*>(step.policyTarget.data()), step.policyTarget.size() * sizeof(float));
-    fileStream.write(reinterpret_cast<const char*>(&result), sizeof(float));
-  }
-
   PRecorder::PRecorder(const std::string& filename) : outputPath(filename) {
     fileStream.open(outputPath, std::ios::binary | std::ios::app);
   }
@@ -74,7 +34,7 @@ namespace nyx::engine {
 
     std::vector<float> floats = board.getFullStateTensor();
 
-    for (int p = 0; p < 13; ++p) {
+    for (int p = 0; p < 12; ++p) {
       uint64_t packed = 0;
       for (int sq = 0; sq < 64; ++sq) {
         if (floats[p *  64 + sq] > 0.5f) {
@@ -84,7 +44,7 @@ namespace nyx::engine {
       step.planes[p] = packed;
     }
 
-    step.moveIndex = static_cast<uint16_t>(Searcher::moveToIndex(bestMove));
+    step.moveIndex = static_cast<uint16_t>(Searcher::moveToIndex(bestMove, board.getSideToMove() == game::Color::Black));
 
     gameBuffer.push_back(step);
   }
@@ -114,7 +74,7 @@ namespace nyx::engine {
   }
 
   void PRecorder::writeToDisk(const PStep& step, float result) {
-    fileStream.write(reinterpret_cast<const char*>(step.planes), 13 * sizeof(uint64_t));
+    fileStream.write(reinterpret_cast<const char*>(step.planes), 12 * sizeof(uint64_t));
     fileStream.write(reinterpret_cast<const char*>(&step.moveIndex), sizeof(uint16_t));
     int16_t pRes = static_cast<int16_t>(result * 100);
     fileStream.write(reinterpret_cast<const char*>(&pRes), sizeof(int16_t));

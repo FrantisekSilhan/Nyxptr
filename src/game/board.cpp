@@ -279,13 +279,20 @@ namespace nyx::game {
   std::vector<float> Board::getFullStateTensor() const {
     std::vector<float> tensor(768, 0.0f);
 
+    Color us = sideToMove;
+    Color them = !us;
+
+    Color colors[2] = {us, them};
+
     for (int p = 0; p < 6; ++p) {
       for (int c = 0; c < 2; ++c) {
-        uint64_t bb = bitboards[c][p];
+        uint64_t bb = bitboards[to_i(colors[c])][p];
         int planeOffset = (c * 6 + p) * 64;
+
         while (bb) {
           int sq = bitboard::popLSB(bb);
-          tensor[planeOffset + sq] = 1.0f;
+          int orientedSq = (us == Color::Black) ? (sq ^ 56) : sq;
+          tensor[planeOffset + orientedSq] = 1.0f;
         }
       }
     }
@@ -294,13 +301,20 @@ namespace nyx::game {
   }
 
   void Board::fillTensorData(float* data) const {
+    Color us = sideToMove;
+    Color them = !us;
+
+    Color colors[2] = {us, them};
+
     for (int p = 0; p < 6; ++p) {
       for (int c = 0; c < 2; ++c) {
-        uint64_t bb = bitboards[c][p];
+        uint64_t bb = bitboards[to_i(colors[c])][p];
         int planeOffset = (c * 6 + p) * 64;
+
         while (bb) {
           int sq = bitboard::popLSB(bb);
-          data[planeOffset + sq] = 1.0f;
+          int orientedSq = (us == Color::Black) ? (sq ^ 56) : sq;
+          data[planeOffset + orientedSq] = 1.0f;
         }
       }
     }

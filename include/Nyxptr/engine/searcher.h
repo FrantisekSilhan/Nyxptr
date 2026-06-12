@@ -36,9 +36,7 @@ namespace nyx::engine {
     public:
       explicit Searcher(const std::string& modelPath);
       game::Move findBestMove(game::Board& board, int simulations);
-      game::Move selectMoveProportionally(MCTSNode* root);
-      std::pair<game::Move, std::vector<float>> getBestMoveAndDistribution(game::Board& board, int simulations);
-      static int moveToIndex(const game::Move& m);
+      static int moveToIndex(const game::Move& m, bool flip);
       void clearCache() { tt.clear(); }
       void setCPuct(float c) { cPuct = c; }
       void setFpuReduction(float r) { fpuReduction = r; }
